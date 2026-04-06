@@ -33,6 +33,13 @@
       "expo-router",
       "expo-notifications",
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dd80daac-2f57-43ad-9df2-96bcaad8cad0"
+      }
+    },
+    "owner": "arpan-sadhu"
   }
 }

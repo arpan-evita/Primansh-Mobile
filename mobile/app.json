@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Primansh Agency OS",
+    "slug": "primansh-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "primansh-mobile",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070b14"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.primansh.agencyos"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#070b14"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.primansh.agencyos"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      "expo-web-browser"
+    ]
+  }
+}

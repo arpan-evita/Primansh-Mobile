@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SEO for Chartered Accountants & CA Website Design India | Primansh</title>
+    <meta name="description" content="Generate consistent high-value clients for your CA firm with Primansh. Specialized SEO, high-converting websites, and lead generation systems for Chartered Accountants in India." />
+    <meta name="author" content="Primansh" />
+
+    <meta property="og:title" content="Primansh - Growth Partner for CA Firms" />
+    <meta property="og:description" content="Get consistent high-value clients for your CA firm through SEO and conversion-focused websites." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og-image.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@Primansh" />
+    <meta name="twitter:image" content="/og-image.png" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;800&family=Space+Mono:wght@400&display=optional" as="style" fetchpriority="high" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;800&family=Space+Mono:wght@400&display=optional" rel="stylesheet" />
+    
+    <style>
+      :root {
+        --background: 220 20% 97%;
+        --foreground: 222 47% 11%;
+        --surface: 224 100% 97%;
+        --accent: 224 86% 63%;
+        --hot: 224 62% 52%;
+        --electric: 224 86% 63%;
+        --border: 220 13% 91%;
+        --radius: 1rem;
+        --gradient-electric: linear-gradient(135deg, hsl(224 86% 63%) 0%, hsl(214 100% 72%) 100%);
+        --shadow-glow: 0 0 80px hsl(224 86% 63% / 0.15);
+        --shadow-glow-strong: 0 0 120px hsl(224 86% 63% / 0.25);
+      }
+      * { box-sizing: border-box; }
+      body {
+        background-color: hsl(var(--background));
+        color: hsl(var(--foreground));
+        margin: 0;
+        font-family: 'Outfit', -apple-system, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      .noise::before {
+        content: ''; position: absolute; inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        opacity: 0.02; pointer-events: none; z-index: 1;
+      }
+      .text-gradient {
+        background: var(--gradient-electric);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .animate-fade-in-up { animation: fade-in-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      @keyframes fade-in-up {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes pulse-glow {
+        0%, 100% { opacity: 0.4; transform: scale(1); }
+        50% { opacity: 0.8; transform: scale(1.05); }
+      }
+      .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+      #root { min-height: 100vh; display: flex; flex-direction: column; }
+    </style>
+    
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

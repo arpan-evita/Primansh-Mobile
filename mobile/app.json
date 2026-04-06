@@ -7,7 +7,6 @@
     "icon": "./assets/icon.png",
     "scheme": "primansh-mobile",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,15 +14,25 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.primansh.agencyos"
+      "bundleIdentifier": "com.primansh.agencyos",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio", "voip"],
+        "NSCameraUsageDescription": "Primansh requires camera access for secure video meetings.",
+        "NSMicrophoneUsageDescription": "Primansh requires microphone access for voice calls and meetings."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#070b14"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.primansh.agencyos"
+      "edgeToEdgeEnabled": false,
+      "package": "com.primansh.agencyos",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -31,7 +40,24 @@
     },
     "plugins": [
       "expo-router",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-web-browser",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "bitcode": false
+          }
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for video meetings.",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for voice calls."
+        }
+      ]
     ],
     "extra": {
       "router": {},

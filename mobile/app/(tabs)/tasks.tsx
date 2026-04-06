@@ -1,137 +1,115 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
-import { supabase } from '../../lib/supabase';
+import { View, Text, SectionList, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CheckSquare, Clock, AlertCircle, ChevronRight, Circle, CheckCircle2 } from 'lucide-react-native';
+import { supabase } from '../../lib/supabase';
 import { GlassCard } from '../../components/ui/GlassCard';
+import { Colors, Fonts } from '../../lib/theme';
+import { CheckCircle2, Circle, Clock } from 'lucide-react-native';
 
 export default function TasksScreen() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
 
   async function fetchTasks() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: profile } = await supabase.from('profiles').select('id, role, associated_client_id').eq('id', user.id).single();
-    setProfile(profile);
-
-    let query = supabase.from('tasks').select('*').order('created_at', { ascending: false });
+    setLoading(true);
+    const { data: taskData, error } = await supabase
+      .from('tasks')
+      .select('*, client:clients(firm_name)')
+      .order('created_at', { ascending: false });
     
-    if (profile?.role === 'client') {
-      query = query.eq('client_id', profile.associated_client_id);
-    } else {
-      query = query.eq('assigned_to', user.id);
-    }
-
-    const { data } = await query;
-    setTasks(data || []);
+    if (taskData) setTasks(taskData);
     setLoading(false);
-    setRefreshing(false);
   }
 
   useEffect(() => {
     fetchTasks();
+  }, []);
 
-    // Real-time subscription
-    const channel = supabase
-      .channel('public:tasks')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload: any) => {
-        if (payload.eventType === 'INSERT') {
-          // Check if it belongs to this user/client
-          if (profile?.role === 'client' && payload.new.client_id === profile.associated_client_id) {
-            setTasks(prev => [payload.new, ...prev]);
-          } else if (profile?.role !== 'client' && payload.new.assigned_to === profile?.id) {
-            setTasks(prev => [payload.new, ...prev]);
-          }
-        } else if (payload.eventType === 'UPDATE') {
-          setTasks(prev => prev.map(t => t.id === payload.new.id ? payload.new : t));
-        } else if (payload.eventType === 'DELETE') {
-          setTasks(prev => prev.filter(t => t.id === payload.old.id));
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [profile?.id, profile?.role, profile?.associated_client_id]);
-
-  async function toggleTask(task: any) {
+  const toggleTaskStatus = async (task: any) => {
     const newStatus = task.status === 'done' ? 'todo' : 'done';
-    const { error } = await supabase
+    
+    // Optimistic update
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+
+    await supabase
       .from('tasks')
       .update({ status: newStatus })
       .eq('id', task.id);
-    
-    // UI will update via real-time subscription
-  }
+  };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator color="#3b82f6" />
-      </View>
-    );
-  }
+  // Grouping tasks for SectionList
+  const getGroupedTasks = () => {
+    const todo = tasks.filter(t => t.status === 'todo');
+    const inProgress = tasks.filter(t => t.status === 'in_progress');
+    const done = tasks.filter(t => t.status === 'done');
+
+    return [
+      { title: 'TODO', data: todo, color: Colors.slate500 },
+      { title: 'IN PROGRESS', data: inProgress, color: '#3b82f6' },
+      { title: 'COMPLETED', data: done, color: '#10b981' }
+    ].filter(section => section.data.length > 0);
+  };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>WORKFLOW CONTROL</Text>
-        <Text style={styles.headerSubtitle}>// ACTIVE NODES & TASKING</Text>
+        <Text style={styles.headerTitle}>Tasks</Text>
+        <Text style={styles.headerSubtitle}>Kanban Execution List</Text>
       </View>
 
-      <FlatList
-        data={tasks}
-        keyExtractor={(item) => item.id}
+      <SectionList
+        sections={getGroupedTasks()}
+        keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchTasks(); }} tintColor="#3b82f6" />}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            activeOpacity={0.7}
-            onPress={() => profile?.role !== 'client' && toggleTask(item)}
-          >
-            <GlassCard 
-              style={[styles.taskCard, item.status === 'done' && styles.taskDoneCard]}
-              intensity={item.status === 'done' ? 15 : 25}
-            >
-              <View style={styles.taskContent}>
-                <View style={styles.taskIcon}>
-                  {item.status === 'done' ? (
-                    <CheckCircle2 size={24} color="#10b981" />
-                  ) : (
-                    <Circle size={24} color="#475569" />
-                  )}
-                </View>
-                <View style={styles.taskInfo}>
-                  <Text style={[styles.taskTitle, item.status === 'done' && styles.taskDoneTitle]}>{item.title}</Text>
-                  <View style={styles.taskMeta}>
-                    <Clock size={12} color="#64748b" />
-                    <Text style={styles.taskDate}>
-                      {item.due_date ? new Date(item.due_date).toLocaleDateString() : 'No date'}
-                    </Text>
-                    {item.priority === 'high' && (
-                      <View style={styles.priorityBadge}>
-                        <AlertCircle size={10} color="#ef4444" />
-                        <Text style={styles.priorityText}>HIGH</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-                <ChevronRight size={16} color="#1e293b" />
-              </View>
-            </GlassCard>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <CheckSquare size={48} color="#1e293b" />
-            <Text style={styles.emptyText}>Protocol Clean: No active tasks assigned</Text>
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTasks} tintColor={Colors.accent} />}
+        renderSectionHeader={({ section: { title, color } }) => (
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionDot, { backgroundColor: color }]} />
+            <Text style={[styles.sectionTitle, { color }]}>{title}</Text>
           </View>
-        }
+        )}
+        renderItem={({ item }) => (
+          <GlassCard style={styles.card} intensity={10}>
+            <TouchableOpacity onPress={() => toggleTaskStatus(item)} style={styles.taskContainer}>
+              <View style={styles.checkboxContainer}>
+                {item.status === 'done' ? (
+                  <CheckCircle2 color="#10b981" size={20} />
+                ) : item.status === 'in_progress' ? (
+                  <Clock color="#3b82f6" size={20} />
+                ) : (
+                  <Circle color={Colors.slate500} size={20} />
+                )}
+              </View>
+              
+              <View style={styles.taskInfo}>
+                <Text style={[
+                  styles.taskTitle, 
+                  item.status === 'done' && styles.taskTitleDone
+                ]}>
+                  {item.title}
+                </Text>
+                {item.client?.firm_name && (
+                  <Text style={styles.clientLabel}>{item.client.firm_name}</Text>
+                )}
+              </View>
+
+              <View style={[styles.priorityBadge, { 
+                backgroundColor: item.priority === 'urgent' ? '#ef444422' : 
+                                 item.priority === 'high' ? '#f59e0b22' : '#ffffff11'
+              }]}>
+                <Text style={[styles.priorityText, { 
+                  color: item.priority === 'urgent' ? '#ef4444' : 
+                         item.priority === 'high' ? '#f59e0b' : Colors.slate500
+                }]}>
+                  {item.priority?.toUpperCase() || 'NORMAL'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </GlassCard>
+        )}
+        ListEmptyComponent={!loading ? (
+          <Text style={styles.emptyText}>No tasks assigned.</Text>
+        ) : null}
       />
     </SafeAreaView>
   );
@@ -140,102 +118,91 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#070b14',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#070b14',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: Colors.background,
   },
   header: {
-    padding: 20,
-    backgroundColor: 'rgba(7, 11, 20, 0.8)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
   headerTitle: {
-    fontSize: 14,
-    fontWeight: '900',
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 28,
     color: '#fff',
-    letterSpacing: 2,
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
-    fontSize: 8,
-    color: '#3b82f6',
-    fontWeight: 'bold',
-    letterSpacing: 1,
+    fontFamily: Fonts.SpaceMono_400Regular,
+    fontSize: 12,
+    color: Colors.slate500,
     marginTop: 4,
   },
   listContent: {
-    padding: 20,
-    paddingBottom: 100,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
   },
-  taskCard: {
-    padding: 0, // Handled by GlassCard's inner content if needed, but we used custom content inside
-    marginBottom: 12,
-  },
-  taskContent: {
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 20,
+    paddingBottom: 12,
+  },
+  sectionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 8,
+  },
+  sectionTitle: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 12,
+    letterSpacing: 1,
+  },
+  card: {
     padding: 16,
+    borderRadius: 16,
+    marginBottom: 8,
   },
-  taskDoneCard: {
-    opacity: 0.6,
+  taskContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  taskIcon: {
-    marginRight: 16,
+  checkboxContainer: {
+    marginRight: 12,
   },
   taskInfo: {
     flex: 1,
   },
   taskTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#e2e8f0',
+    fontFamily: Fonts.SpaceMono_400Regular,
+    fontSize: 13,
+    color: '#fff',
     marginBottom: 4,
   },
-  taskDoneTitle: {
+  taskTitleDone: {
+    color: Colors.slate500,
     textDecorationLine: 'line-through',
-    color: '#64748b',
   },
-  taskMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  taskDate: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '600',
+  clientLabel: {
+    fontFamily: Fonts.SpaceMono_400Regular,
+    fontSize: 10,
+    color: '#3b82f6',
   },
   priorityBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
     paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    gap: 4,
-    marginLeft: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginLeft: 12,
   },
   priorityText: {
+    fontFamily: Fonts.SpaceMono_700Bold,
     fontSize: 8,
-    fontWeight: '900',
-    color: '#ef4444',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 100,
-    opacity: 0.3,
+    letterSpacing: 0.5,
   },
   emptyText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: 16,
-  },
+    fontFamily: Fonts.SpaceMono_400Regular,
+    color: Colors.slate500,
+    textAlign: 'center',
+    marginTop: 40,
+  }
 });

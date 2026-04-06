@@ -1,70 +1,40 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, Dimensions, TouchableOpacity } from 'react-native';
 import { supabase } from '../../lib/supabase';
-import { LayoutDashboard, TrendingUp, CheckSquare, Zap, Activity, Clock, ShieldCheck, Star, Video, ArrowUpRight } from 'lucide-react-native';
+import { 
+  Menu, Sparkles, Plus, Bell, PenTool, FileText, Star, Users, ArrowDownRight, TrendingUp 
+} from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GlassCard } from '../../components/ui/GlassCard';
-import { GlassButton } from '../../components/ui/GlassButton';
-import * as WebBrowser from 'expo-web-browser';
-
-const { width } = Dimensions.get('window');
+import { Colors, Fonts } from '../../lib/theme';
+import { useRouter } from 'expo-router';
 
 export default function DashboardScreen() {
   const [profile, setProfile] = useState<any>(null);
-  const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [metrics, setMetrics] = useState({ clients: 0, traffic: 0 });
   const [refreshing, setRefreshing] = useState(false);
-  const [nextMeeting, setNextMeeting] = useState<any>(null);
+  const router = useRouter();
 
   async function fetchData() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // 1. Fetch Profile
     const { data: profileData } = await supabase
       .from('profiles')
-      .select('*, associated_client_id')
+      .select('*')
       .eq('id', user.id)
       .single();
     
     setProfile(profileData);
 
-    // 2. Fetch Role-Specific Stats
-    if (profileData?.role === 'client') {
-       const { data: clientData } = await supabase
-         .from('clients')
-         .select('*')
-         .eq('id', profileData.associated_client_id)
-         .single();
-       
-       setStats({ type: 'client', ...clientData });
-
-       // Fetch next meeting for client
-       const { data: meetings } = await supabase
-         .from('meetings')
-         .select('*')
-         .eq('client_id', profileData.associated_client_id)
-         .gte('start_time', new Date().toISOString())
-         .order('start_time', { ascending: true })
-         .limit(1);
-       
-       if (meetings && meetings.length > 0) {
-         setNextMeeting(meetings[0]);
-       }
-    } else {
-       const { data: tasks } = await supabase
-         .from('tasks')
-         .select('id, status')
-         .eq('assigned_to', user.id);
-       
-       setStats({ 
-         type: 'team', 
-         tasks: tasks || [],
-         totalTasks: tasks?.length || 0,
-         doneTasks: tasks?.filter(t => t.status === 'done').length || 0
-       });
+    // Fetch Client Metric Data (assuming 'clients' table exists per web schema)
+    try {
+      const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true });
+      setMetrics(prev => ({ ...prev, clients: count || 0 }));
+    } catch(e) {
+      // Ignore if table access restricted 
     }
-    setLoading(false);
+    
     setRefreshing(false);
   }
 
@@ -77,141 +47,107 @@ export default function DashboardScreen() {
     fetchData();
   };
 
-  const handleJoinMeeting = async () => {
-    if (nextMeeting?.room_url) {
-      await WebBrowser.openBrowserAsync(nextMeeting.room_url);
-    } else {
-      // Fallback for demo
-      await WebBrowser.openBrowserAsync('https://primansh.com/meeting/demo');
-    }
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator color="#3b82f6" />
-      </View>
-    );
-  }
-
-  const isClient = profile?.role === 'client';
-
   return (
     <SafeAreaView style={styles.container}>
+      {/* TOP HEADER MENU */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity style={styles.iconButton}>
+            <Menu color={Colors.slate500} size={24} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Dashboard</Text>
+        </View>
+
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#F8FAFC' }]}>
+            <Sparkles color={Colors.slate500} size={18} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: Colors.accent }]}>
+            <Plus color="#fff" size={18} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconButton}>
+            <Bell color={Colors.slate500} size={20} />
+          </TouchableOpacity>
+          <View style={styles.avatar}>
+             <Text style={styles.avatarText}>{profile?.full_name?.[0]?.toUpperCase() || 'U'}</Text>
+          </View>
+        </View>
+      </View>
+
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />}
       >
-        {/* HEADER */}
-        <View style={styles.header}>
-          <View>
-            <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusText}>NODE ACTIVE</Text>
-            </View>
-            <Text style={styles.welcomeText}>Welcome, {profile?.full_name?.split(' ')[0] || 'Operator'}</Text>
-          </View>
-          <View style={styles.avatar}>
-             <Text style={styles.avatarText}>{profile?.full_name?.[0] || 'U'}</Text>
-          </View>
+        
+        {/* QUICK ACTION NAVIGATION STACK */}
+        <View style={styles.actionsStack}>
+          
+          <ActionCard 
+            title="New Article" 
+            subtitle="ADVANCED EDITOR" 
+            icon={PenTool} 
+            color="#3b82f6" 
+            onPress={() => router.push('/portal/articles/editor')} 
+          />
+          
+          <ActionCard 
+            title="Article Master" 
+            subtitle="MANAGE CONTENT" 
+            icon={FileText} 
+            color="#3b82f6" 
+            onPress={() => router.push('/portal/articles')} 
+          />
+          
+          <ActionCard 
+            title="Testimonials" 
+            subtitle="SOCIAL PROOF" 
+            icon={Star} 
+            color="#10b981" 
+            onPress={() => router.push('/portal/testimonials')} 
+          />
+          
+          <ActionCard 
+            title="Team Hub" 
+            subtitle="MANAGE RANKS" 
+            icon={Users} 
+            color="#eab308" 
+            onPress={() => router.push('/portal/team')} 
+          />
         </View>
 
-        {/* PULSE DASHBOARD MAIN CARD (Client Only) */}
-        {isClient && (
-          <GlassCard style={styles.pulseCard} intensity={50}>
-            <View style={styles.pulseHeader}>
-              <Text style={styles.pulseTitle}>PULSE STATUS</Text>
-              <View style={styles.liveBadge}>
-                <Text style={styles.liveText}>LIVE</Text>
+        {/* METRICS ROW */}
+        <View style={styles.metricsGrid}>
+          {/* Total Clients Card */}
+          <GlassCard style={styles.metricCard} intensity={25}>
+            <View style={styles.metricHeader}>
+              <View style={[styles.metricIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+                <Users color="#3b82f6" size={18} />
+              </View>
+              <View style={styles.metricBadgeDrop}>
+                 <ArrowDownRight color="#f97316" size={12} />
+                 <Text style={styles.metricBadgeTextDrop}>67%</Text>
               </View>
             </View>
-            <View style={styles.pulseValueContainer}>
-              <Text style={styles.pulseValue}>{stats?.health_score || 94}%</Text>
-              <View style={styles.pulseIndicator}>
-                <TrendingUp size={16} color="#10b981" />
-                <Text style={styles.pulseIndicatorText}>+2.4%</Text>
-              </View>
-            </View>
-            <Text style={styles.pulseSub}>SYSTEM STABILITY: OPTIMAL</Text>
-            <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: `${stats?.health_score || 94}%` }]} />
+            <View style={styles.metricContent}>
+              <Text style={styles.metricLargeValue}>{metrics.clients}</Text>
+              <Text style={styles.metricLabel}>TOTAL CLIENTS</Text>
             </View>
           </GlassCard>
-        )}
 
-        {/* METRICS GRID */}
-        <View style={styles.grid}>
-          {!isClient ? (
-            <>
-              <MetricCard 
-                label="TOTAL WORKFLOW" 
-                value={stats?.totalTasks || 0} 
-                sub="ASSIGNED TASKS"
-                icon={CheckSquare}
-                color="#3b82f6"
-              />
-              <MetricCard 
-                label="ACHIEVEMENT" 
-                value={`${stats?.totalTasks ? Math.round((stats.doneTasks / stats.totalTasks) * 100) : 0}%`} 
-                sub="COMPLETION RATE"
-                icon={Star}
-                color="#10b981"
-              />
-            </>
-          ) : (
-            <>
-              <MetricCard 
-                label="PLAN STATUS" 
-                value={stats?.plan_type?.toUpperCase() || 'CORE'} 
-                sub="ACTIVE NODE"
-                icon={Zap}
-                color="#a78bfa"
-              />
-              <MetricCard 
-                label="NETWORK IPS" 
-                value="2.4k" 
-                sub="LIVE TRAFFIC"
-                icon={Activity}
-                color="#3b82f6"
-              />
-            </>
-          )}
-        </View>
-
-        {/* NEXT MEETING SECTION */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>UPCOMING DEPLOYMENT</Text>
-          <GlassCard style={styles.meetingCard} intensity={25}>
-            <View style={styles.meetingInfo}>
-              <View style={styles.meetingIcon}>
-                <Video size={20} color="#3b82f6" />
+          {/* Agency Traffic Card */}
+          <GlassCard style={styles.metricCard} intensity={25}>
+            <View style={styles.metricHeader}>
+              <View style={[styles.metricIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+                <TrendingUp color="#3b82f6" size={18} />
               </View>
-              <View>
-                <Text style={styles.meetingTitle}>{nextMeeting?.title || 'Strategy Synchronization'}</Text>
-                <Text style={styles.meetingTime}>
-                  {nextMeeting ? new Date(nextMeeting.start_time).toLocaleString() : 'Scheduled: 2:00 PM EST'}
-                </Text>
+              <View style={styles.metricBadgeStable}>
+                 <Text style={styles.metricBadgeTextStable}>STABLE</Text>
               </View>
             </View>
-            <GlassButton 
-              title="JOIN NODE" 
-              onPress={handleJoinMeeting}
-              icon={<ArrowUpRight size={18} color="#fff" />}
-              style={styles.joinButton}
-              variant="primary"
-            />
-          </GlassCard>
-        </View>
-
-        {/* INTELLIGENCE FEED */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>INTELLIGENCE FEED</Text>
-          <GlassCard style={styles.feedCard} intensity={20}>
-             <FeedItem icon={Activity} color="#3b82f6" text="Node authentication successful" time="Just now" />
-             <FeedItem icon={Clock} color="#64748b" text="System telemetry synchronized" time="2 mins ago" />
-             {isClient && (
-               <FeedItem icon={TrendingUp} color="#10b981" text="Health score stabilized at 94%" time="1h ago" />
-             )}
+            <View style={styles.metricContent}>
+               <Text style={styles.metricLargeValue}>{metrics.traffic}</Text>
+               <Text style={styles.metricLabel}>AGENCY TRAFFIC</Text>
+            </View>
           </GlassCard>
         </View>
 
@@ -220,43 +156,26 @@ export default function DashboardScreen() {
   );
 }
 
-function MetricCard({ label, value, sub, icon: Icon, color }: any) {
+function ActionCard({ title, subtitle, icon: Icon, color, onPress }: any) {
   return (
-    <GlassCard style={styles.card} intensity={25}>
-      <View style={[styles.cardIcon, { backgroundColor: color + '1A' }]}>
-        <Icon size={20} color={color} />
-      </View>
-      <Text style={styles.cardValue}>{value}</Text>
-      <Text style={styles.cardLabel}>{label}</Text>
-      <Text style={styles.cardSub}>{sub}</Text>
-    </GlassCard>
-  );
-}
-
-function FeedItem({ icon: Icon, color, text, time }: any) {
-  return (
-    <View style={styles.feedItem}>
-      <View style={[styles.feedIcon, { borderColor: color + '33' }]}>
-        <Icon size={14} color={color} />
-      </View>
-      <View style={styles.feedContent}>
-        <Text style={styles.feedText}>{text}</Text>
-        <Text style={styles.feedTime}>{time}</Text>
-      </View>
-    </View>
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <GlassCard style={styles.actionCard} intensity={15}>
+        <View style={[styles.actionIconContainer, { backgroundColor: color + '1A' }]}>
+           <Icon color={color} size={20} />
+        </View>
+        <View style={styles.actionTextContainer}>
+          <Text style={styles.actionTitle}>{title}</Text>
+          <Text style={styles.actionSubtitle}>{subtitle}</Text>
+        </View>
+      </GlassCard>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#070b14',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#070b14',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: Colors.background,
   },
   scrollContent: {
     padding: 20,
@@ -266,225 +185,153 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 32,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  statusBadge: {
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 100,
-    marginBottom: 8,
-    alignSelf: 'flex-start',
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#3b82f6',
-    marginRight: 6,
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-  statusText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#3b82f6',
-    letterSpacing: 1,
-  },
-  welcomeText: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  headerTitle: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 18,
     color: '#fff',
-    letterSpacing: -0.5,
+    marginLeft: 16,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionButton: {
+    width: 46,
+    height: 38,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  pulseCard: {
-    marginBottom: 24,
-  },
-  pulseHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  pulseTitle: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#64748b',
-    letterSpacing: 1,
-  },
-  liveBadge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.2)',
-  },
-  liveText: {
-    fontSize: 8,
-    fontWeight: 'bold',
-    color: '#10b981',
-  },
-  pulseValueContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  pulseValue: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginRight: 12,
-  },
-  pulseIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  pulseIndicatorText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#10b981',
-    marginLeft: 4,
-  },
-  pulseSub: {
-    fontSize: 10,
-    color: '#475569',
-    fontWeight: '700',
-    marginBottom: 16,
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#10b981',
-  },
-  grid: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 32,
-  },
-  card: {
-    flex: 1,
-    padding: 20,
-  },
-  cardIcon: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: 18,
+    backgroundColor: Colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
   },
-  cardValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  avatarText: {
+    fontFamily: Fonts.Outfit_700Bold,
     color: '#fff',
-    marginBottom: 4,
+    fontSize: 14,
   },
-  cardLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#64748b',
-    letterSpacing: 0.5,
+  actionsStack: {
+    gap: 16,
+    marginTop: 10,
   },
-  cardSub: {
-    fontSize: 8,
-    color: '#475569',
-    marginTop: 2,
-    fontStyle: 'italic',
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#475569',
-    letterSpacing: 2,
-    marginBottom: 16,
-    marginLeft: 4,
-  },
-  meetingCard: {
-    padding: 16,
-  },
-  meetingInfo: {
+  actionCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    padding: 20,
+    borderRadius: 24,
   },
-  meetingIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+  actionIconContainer: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
   },
-  meetingTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 2,
-  },
-  meetingTime: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  joinButton: {
-    height: 48,
-  },
-  feedCard: {
-    padding: 8,
-  },
-  feedItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-  },
-  feedIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  feedContent: {
+  actionTextContainer: {
     flex: 1,
   },
-  feedText: {
-    fontSize: 13,
-    color: '#e2e8f0',
-    fontWeight: '500',
+  actionTitle: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 16,
+    color: '#fff',
+    marginBottom: 4,
   },
-  feedTime: {
+  actionSubtitle: {
+    fontFamily: Fonts.SpaceMono_400Regular,
     fontSize: 10,
-    color: '#475569',
-    marginTop: 2,
+    color: Colors.slate500,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 24,
+  },
+  metricCard: {
+    flex: 1,
+    padding: 20,
+    borderRadius: 24,
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  metricIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  metricBadgeDrop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(249, 115, 22, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  metricBadgeTextDrop: {
+    fontFamily: Fonts.SpaceMono_700Bold,
+    color: '#f97316',
+    fontSize: 10,
+    marginLeft: 4,
+  },
+  metricBadgeStable: {
+    backgroundColor: 'rgba(71, 85, 105, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  metricBadgeTextStable: {
+    fontFamily: Fonts.SpaceMono_700Bold,
+    color: Colors.slate500,
+    fontSize: 9,
+    letterSpacing: 0.5,
+  },
+  metricContent: {
+    marginTop: 'auto',
+  },
+  metricLargeValue: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 32,
+    color: '#fff',
+    marginBottom: 8,
+  },
+  metricLabel: {
+    fontFamily: Fonts.SpaceMono_400Regular,
+    fontSize: 10,
+    color: Colors.slate500,
+    letterSpacing: 1,
   },
 });

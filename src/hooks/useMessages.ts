@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
+import { startRtcSession } from '@/lib/rtcSessions';
 
 export interface Message {
   id: string;
@@ -537,6 +538,57 @@ export function useMessages(conversationId?: string) {
     deleteConversation,
     deleteMessage,
     deleteMessages,
+    startCallSession: async (
+      pConversationId?: string,
+      callType: 'one_to_one' | 'group' = 'one_to_one'
+    ) => {
+      const targetConvId = pConversationId || conversationId;
+      if (!profile || !targetConvId) return;
+
+      try {
+        return await startRtcSession({
+          conversationId: targetConvId,
+          sessionClass: 'call',
+          mediaMode: 'audio',
+          callType,
+          metadata: {
+            source: 'chat',
+            platform: 'web',
+          },
+        });
+      } catch (err: any) {
+        console.error('startCallSession failed:', err);
+        toast.error(err.message || 'Failed to start voice call');
+      }
+    },
+    startStructuredMeetingSession: async (
+      pConversationId?: string,
+      options?: {
+        title?: string;
+        scheduledStartAt?: string | null;
+      }
+    ) => {
+      const targetConvId = pConversationId || conversationId;
+      if (!profile || !targetConvId) return;
+
+      try {
+        return await startRtcSession({
+          conversationId: targetConvId,
+          sessionClass: 'meeting',
+          mediaMode: 'video',
+          meetingType: options?.scheduledStartAt ? 'scheduled' : 'instant',
+          title: options?.title || null,
+          scheduledStartAt: options?.scheduledStartAt || null,
+          metadata: {
+            source: 'chat',
+            platform: 'web',
+          },
+        });
+      } catch (err: any) {
+        console.error('startStructuredMeetingSession failed:', err);
+        toast.error(err.message || 'Failed to start structured meeting');
+      }
+    },
     startMeeting: async (pConversationId?: string, isAudioOnly: boolean = false) => {
       const targetConvId = pConversationId || conversationId;
       if (!profile || !targetConvId) return;

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
 import { 
-  LayoutDashboard, Users, CheckSquare, MessageSquare, Video, FileText 
+  LayoutDashboard, Users, CheckSquare, MessageSquare, Video, FileText, Menu 
 } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import { Platform, View, StyleSheet } from 'react-native';
@@ -105,6 +105,15 @@ export default function TabLayout() {
           title: 'DOCS',
           tabBarIcon: ({ color, size }) => (
             <FileText color={color} size={20} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'MORE',
+          tabBarIcon: ({ color, size }) => (
+            <Menu color={color} size={20} />
           ),
         }}
       />

@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl, Dimensions, TouchableOpacity } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { 
-  Menu, Sparkles, Plus, Bell, PenTool, FileText, Star, Users, ArrowDownRight, TrendingUp 
+  Menu, Sparkles, Plus, Bell, PenTool, FileText, Star, Users, 
+  CreditCard, CheckCircle, Clock, AlertCircle 
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GlassCard } from '../../components/ui/GlassCard';
@@ -11,7 +12,12 @@ import { useRouter } from 'expo-router';
 
 export default function DashboardScreen() {
   const [profile, setProfile] = useState<any>(null);
-  const [metrics, setMetrics] = useState({ clients: 0, traffic: 0 });
+  const [metrics, setMetrics] = useState({ 
+    totalInvoiced: 0, 
+    paid: 0, 
+    pending: 0, 
+    overdue: 0 
+  });
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
 
@@ -27,12 +33,26 @@ export default function DashboardScreen() {
     
     setProfile(profileData);
 
-    // Fetch Client Metric Data (assuming 'clients' table exists per web schema)
+    // Fetch Invoice Metrics
     try {
-      const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true });
-      setMetrics(prev => ({ ...prev, clients: count || 0 }));
+      const { data: invoices } = await supabase
+        .from('invoices')
+        .select('amount, status');
+
+      if (invoices) {
+        const stats = invoices.reduce((acc, inv) => {
+          const amt = Number(inv.amount) || 0;
+          acc.totalInvoiced += amt;
+          if (inv.status === 'paid') acc.paid += amt;
+          if (inv.status === 'pending') acc.pending += amt;
+          if (inv.status === 'overdue') acc.overdue += amt;
+          return acc;
+        }, { totalInvoiced: 0, paid: 0, pending: 0, overdue: 0 });
+        
+        setMetrics(stats);
+      }
     } catch(e) {
-      // Ignore if table access restricted 
+      console.error("Error fetching metrics:", e);
     }
     
     setRefreshing(false);
@@ -115,40 +135,39 @@ export default function DashboardScreen() {
           />
         </View>
 
-        {/* METRICS ROW */}
+        {/* FINANCIAL METRICS GRID */}
         <View style={styles.metricsGrid}>
-          {/* Total Clients Card */}
-          <GlassCard style={styles.metricCard} intensity={25}>
-            <View style={styles.metricHeader}>
-              <View style={[styles.metricIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                <Users color="#3b82f6" size={18} />
-              </View>
-              <View style={styles.metricBadgeDrop}>
-                 <ArrowDownRight color="#f97316" size={12} />
-                 <Text style={styles.metricBadgeTextDrop}>67%</Text>
-              </View>
-            </View>
-            <View style={styles.metricContent}>
-              <Text style={styles.metricLargeValue}>{metrics.clients}</Text>
-              <Text style={styles.metricLabel}>TOTAL CLIENTS</Text>
-            </View>
-          </GlassCard>
+          {/* Total Invoiced */}
+          <MetricCard 
+            label="TOTAL INVOICED" 
+            value={metrics.totalInvoiced} 
+            icon={CreditCard} 
+            color="#a78bfa" 
+          />
+          
+          {/* Paid */}
+          <MetricCard 
+            label="PAID" 
+            value={metrics.paid} 
+            icon={CheckCircle} 
+            color="#10b981" 
+          />
 
-          {/* Agency Traffic Card */}
-          <GlassCard style={styles.metricCard} intensity={25}>
-            <View style={styles.metricHeader}>
-              <View style={[styles.metricIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                <TrendingUp color="#3b82f6" size={18} />
-              </View>
-              <View style={styles.metricBadgeStable}>
-                 <Text style={styles.metricBadgeTextStable}>STABLE</Text>
-              </View>
-            </View>
-            <View style={styles.metricContent}>
-               <Text style={styles.metricLargeValue}>{metrics.traffic}</Text>
-               <Text style={styles.metricLabel}>AGENCY TRAFFIC</Text>
-            </View>
-          </GlassCard>
+          {/* Pending */}
+          <MetricCard 
+            label="PENDING" 
+            value={metrics.pending} 
+            icon={Clock} 
+            color="#fbbf24" 
+          />
+
+          {/* Overdue */}
+          <MetricCard 
+            label="OVERDUE" 
+            value={metrics.overdue} 
+            icon={AlertCircle} 
+            color="#ef4444" 
+          />
         </View>
 
       </ScrollView>
@@ -156,9 +175,29 @@ export default function DashboardScreen() {
   );
 }
 
+function MetricCard({ label, value, icon: Icon, color }: any) {
+  const formatCurrency = (val: number) => {
+    return '₹' + val.toLocaleString('en-IN');
+  };
+
+  return (
+    <GlassCard style={styles.metricCard} intensity={25}>
+      <View style={styles.metricHeader}>
+        <View style={[styles.metricIconBox, { backgroundColor: color + '1A' }]}>
+          <Icon color={color} size={18} />
+        </View>
+      </View>
+      <View style={styles.metricContent}>
+        <Text style={[styles.metricLargeValue, { color }]}>{formatCurrency(value)}</Text>
+        <Text style={styles.metricLabel}>{label}</Text>
+      </View>
+    </GlassCard>
+  );
+}
+
 function ActionCard({ title, subtitle, icon: Icon, color, onPress }: any) {
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={styles.actionCardWrapper}>
       <GlassCard style={styles.actionCard} intensity={15}>
         <View style={[styles.actionIconContainer, { backgroundColor: color + '1A' }]}>
            <Icon color={color} size={20} />
@@ -198,7 +237,7 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   headerTitle: {
     fontFamily: Fonts.Outfit_700Bold,
@@ -214,16 +253,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionButton: {
-    width: 46,
-    height: 38,
-    borderRadius: 12,
+    width: 40,
+    height: 34,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: Colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
@@ -237,22 +276,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   actionsStack: {
-    gap: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
     marginTop: 10,
   },
+  actionCardWrapper: {
+    width: '48%',
+  },
   actionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    borderRadius: 24,
+    padding: 16,
+    borderRadius: 20,
+    minHeight: 120,
+    justifyContent: 'center',
   },
   actionIconContainer: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginBottom: 12,
   },
   actionTextContainer: {
     flex: 1,
@@ -272,19 +316,20 @@ const styles = StyleSheet.create({
   },
   metricsGrid: {
     flexDirection: 'row',
-    gap: 16,
+    flexWrap: 'wrap',
+    gap: 12,
     marginTop: 24,
   },
   metricCard: {
-    flex: 1,
-    padding: 20,
-    borderRadius: 24,
+    width: '48%',
+    padding: 16,
+    borderRadius: 20,
   },
   metricHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
+    alignItems: 'center',
+    marginBottom: 16,
   },
   metricIconBox: {
     width: 40,
@@ -324,9 +369,9 @@ const styles = StyleSheet.create({
   },
   metricLargeValue: {
     fontFamily: Fonts.Outfit_700Bold,
-    fontSize: 32,
+    fontSize: 20,
     color: '#fff',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   metricLabel: {
     fontFamily: Fonts.SpaceMono_400Regular,

@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { Colors, Fonts } from '../../lib/theme';
 import { MessageSquare, ArrowLeft, Send, Search } from 'lucide-react-native';
-import { useAuth } from '../_layout'; // Wait, let's just get session from supabase directly
 
 export default function MessagesScreen() {
   const [session, setSession] = useState<any>(null);

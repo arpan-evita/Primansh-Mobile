@@ -1728,6 +1728,15 @@ export default function MeetingRoomScreen() {
     [meetingData, profile]
   );
 
+  const handleShareId = useCallback(async () => {
+    try {
+      await Share.share({
+        message: `Join my Primansh meeting using ID: ${meetingId}`,
+        title: 'Share Meeting ID',
+      });
+    } catch { /* ignored */ }
+  }, [meetingId]);
+
   // ── Layout computation ─────────────────────────────────────────────────────
 
   // Find the "featured" participant for speaker view
@@ -1789,10 +1798,18 @@ export default function MeetingRoomScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.lobby}>
-          <Text style={styles.lobbyTitle}>Ready to join?</Text>
-          <Text style={styles.lobbySubtitle}>
-            {meetingData?.conversation?.title || 'Meeting'}
-          </Text>
+          <View style={styles.lobbyHeader}>
+            <View>
+              <Text style={styles.lobbyTitle}>Ready to join?</Text>
+              <Text style={styles.lobbySubtitle}>
+                {meetingData?.conversation?.title || 'Meeting'}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={handleShareId} style={styles.lobbyShareBtn}>
+              <Copy color="#85adff" size={16} />
+              <Text style={styles.lobbyShareText}>Share ID</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Camera preview */}
           <View style={styles.lobbyPreviewWrap}>
@@ -1894,11 +1911,16 @@ export default function MeetingRoomScreen() {
             <Text style={styles.timerText}>{formattedTime}</Text>
           </View>
 
-          {/* Title */}
-          <Text style={styles.meetingTitle} numberOfLines={1}>
-            {meetingData?.conversation?.title ||
-              (isAudioOnly ? 'Voice Call' : 'Video Meeting')}
-          </Text>
+          {/* Title & Share */}
+          <View style={styles.titleContainer}>
+            <Text style={styles.meetingTitle} numberOfLines={1}>
+              {meetingData?.conversation?.title ||
+                (isAudioOnly ? 'Voice Call' : 'Video Meeting')}
+            </Text>
+            <TouchableOpacity onPress={handleShareId} style={styles.shareIdBtn}>
+              <Copy color="#94a3b8" size={14} />
+            </TouchableOpacity>
+          </View>
 
           {/* Participant count */}
           <View style={styles.participantCountChip}>
@@ -2290,6 +2312,19 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.SpaceMono_400Regular, fontSize: 12,
     color: Colors.slate500, textAlign: 'center',
   },
+  lobbyHeader: {
+    width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  lobbyShareBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: 'rgba(133,173,255,0.1)',
+    borderRadius: 12, borderWidth: 1, borderColor: 'rgba(133,173,255,0.2)',
+  },
+  lobbyShareText: {
+    fontFamily: Fonts.Outfit_500Medium, fontSize: 12, color: '#85adff',
+  },
   lobbyPreviewWrap: {
     width: '100%', aspectRatio: 16 / 9, borderRadius: 24, overflow: 'hidden',
     backgroundColor: '#131929', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
@@ -2358,9 +2393,18 @@ const styles = StyleSheet.create({
   timerText: {
     fontFamily: Fonts.Outfit_600SemiBold, fontSize: 13, color: '#e4e7fb',
   },
+  titleContainer: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingHorizontal: 8,
+  },
   meetingTitle: {
     fontFamily: Fonts.Outfit_700Bold, fontSize: 15, color: '#e4e7fb',
-    flex: 1, textAlign: 'center', paddingHorizontal: 8,
+    flexShrink: 1,
+  },
+  shareIdBtn: {
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 8,
   },
   participantCountChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,

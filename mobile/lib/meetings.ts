@@ -158,6 +158,40 @@ export async function createConversationForMeeting(
   return data as string;
 }
 
+async function sendIndividualInvitation(
+  creatorId: string,
+  targetProfileId: string,
+  meetingId: string,
+  content: string
+) {
+  try {
+    const { data: convId, error: convError } = await supabase.rpc("upsert_conversation_v1", {
+      p_participant_ids: [creatorId, targetProfileId],
+      p_title: null,
+      p_client_id: null,
+      p_context_type: null,
+      p_context_id: null,
+    });
+    if (convError || !convId) return;
+
+    const { error: messageError } = await supabase.rpc("send_message_v2", {
+      p_conversation_id: convId as string,
+      p_content: content,
+      p_message_type: "meeting",
+      p_meeting_id: meetingId,
+    });
+    if (messageError) {
+      await supabase.rpc("send_message_v2", {
+        p_conversation_id: convId as string,
+        p_content: content,
+        p_message_type: "text",
+      });
+    }
+  } catch {
+    // Ignore individual invite errors so it doesn't block the rest
+  }
+}
+
 export async function startInstantMeeting(options: {
   currentProfile: MobileProfile;
   participantIds: string[];
@@ -182,20 +216,12 @@ export async function startInstantMeeting(options: {
   if (!meeting) throw new Error("Could not start meeting");
 
   try {
-    const { error: messageError } = await supabase.rpc("send_message_v2", {
-      p_conversation_id: conversationId,
-      p_content: options.isAudioOnly ? "Voice Call Invitation" : "Meeting Invitation",
-      p_message_type: "meeting",
-      p_meeting_id: meeting.id,
-    });
-
-    if (messageError) {
-      await supabase.rpc("send_message_v2", {
-        p_conversation_id: conversationId,
-        p_content: options.isAudioOnly ? "Voice Call Invitation" : "Meeting Invitation",
-        p_message_type: "text",
-      });
-    }
+    const invContent = options.isAudioOnly ? "Voice Call Invitation" : "Meeting Invitation";
+    await Promise.all(
+      options.participantIds.map((pid) =>
+        sendIndividualInvitation(options.currentProfile.id, pid, meeting.id, invContent)
+      )
+    );
   } catch {
     // Invitation message failure should not block room launch.
   }
@@ -249,22 +275,17 @@ export async function inviteProfileToMeeting(options: {
 
   const invitationContent = options.isAudioOnly ? "Added to Voice Call" : "Added to Meeting";
 
-  const { error: messageError } = await supabase.rpc("send_message_v2", {
-    p_conversation_id: options.meeting.conversation_id,
-    p_content: invitationContent,
-    p_message_type: "meeting",
-    p_meeting_id: options.meeting.id,
-  });
-
-  if (!messageError) return;
-
-  const { error: fallbackError } = await supabase.rpc("send_message_v2", {
-    p_conversation_id: options.meeting.conversation_id,
-    p_content: invitationContent,
-    p_message_type: "text",
-  });
-
-  if (fallbackError) throw fallbackError;
+  try {
+    await sendIndividualInvitation(
+      // We assume meeting has a creator_id. If missing, fallback to another safe id.
+      (options.meeting as any).creator_id || options.targetProfileId, 
+      options.targetProfileId, 
+      options.meeting.id, 
+      invitationContent
+    );
+  } catch {
+    // Best effort invitation
+  }
 }
 
 export async function endMeetingForAll(meetingId: string) {

@@ -263,20 +263,83 @@ function CtrlBtn({
   );
 }
 
+// ─── Sub-component: MessageText (highlights @mentions) ──────────────────────
+
+function MessageText({ text, style }: { text: string; style?: any }) {
+  // Split on @word or @First Last patterns
+  const parts = text.split(/(@\S+(?:\s\S+)?)/g);
+  return (
+    <Text style={style}>
+      {parts.map((part, i) =>
+        part.startsWith('@') ? (
+          <Text key={i} style={styles.mentionHighlight}>{part}</Text>
+        ) : (
+          <Text key={i}>{part}</Text>
+        )
+      )}
+    </Text>
+  );
+}
+
+// ─── Sub-component: Mention Suggestions popup ────────────────────────────────
+
+function MentionSuggestions({
+  query,
+  participants,
+  onSelect,
+}: {
+  query: string;
+  participants: LiveParticipant[];
+  onSelect: (name: string) => void;
+}) {
+  const filtered = participants.filter(
+    (p) => !p.isLocal && p.name.toLowerCase().includes(query.toLowerCase())
+  );
+  if (!filtered.length) return null;
+
+  return (
+    <View style={styles.mentionList}>
+      {filtered.map((p) => (
+        <TouchableOpacity
+          key={p.id}
+          style={styles.mentionItem}
+          onPress={() => onSelect(p.name)}
+          activeOpacity={0.75}
+        >
+          <View style={styles.mentionAvatar}>
+            <Text style={styles.mentionAvatarText}>
+              {(p.name || 'U')[0].toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.mentionMeta}>
+            <Text style={styles.mentionName}>{p.name}</Text>
+            <Text style={styles.mentionTag}>@{p.name.split(' ')[0]}</Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 // ─── Sub-component: Chat Panel ────────────────────────────────────────────────
 
 function ChatPanel({
   meetingId,
   profile,
+  participants,
   onClose,
 }: {
   meetingId: string;
   profile: any;
+  participants: LiveParticipant[];
   onClose: () => void;
 }) {
   const { messages, isSending, sendMessage } = useMeetingChat(meetingId, profile);
   const [text, setText] = useState('');
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionAtIndex, setMentionAtIndex] = useState(-1);
   const listRef = useRef<FlatList>(null);
+  const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (messages.length) {
@@ -284,10 +347,38 @@ function ChatPanel({
     }
   }, [messages.length]);
 
+  // Detect @ mention query at the END of current text
+  const handleTextChange = useCallback((newText: string) => {
+    setText(newText);
+    // Match '@' followed by non-space chars at the very end of the string
+    const match = newText.match(/@([^@\s]*)$/);
+    if (match) {
+      setMentionQuery(match[1]); // the part after @
+      setMentionAtIndex(newText.lastIndexOf('@' + match[1]));
+    } else {
+      setMentionQuery(null);
+    }
+  }, []);
+
+  // Insert selected mention, replacing the @query at the end
+  const insertMention = useCallback(
+    (name: string) => {
+      const before = text.slice(0, mentionAtIndex);
+      const after = text.slice(mentionAtIndex + 1 + (mentionQuery?.length ?? 0));
+      const newText = `${before}@${name} ${after}`;
+      setText(newText);
+      setMentionQuery(null);
+      // Keep the keyboard open
+      setTimeout(() => inputRef.current?.focus(), 50);
+    },
+    [text, mentionAtIndex, mentionQuery]
+  );
+
   const handleSend = useCallback(async () => {
     const msg = text.trim();
     if (!msg || isSending) return;
     setText('');
+    setMentionQuery(null);
     await sendMessage(msg);
   }, [text, isSending, sendMessage]);
 
@@ -306,6 +397,7 @@ function ChatPanel({
         data={messages}
         keyExtractor={(m) => m.id}
         contentContainerStyle={styles.chatList}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => {
           const isOwn = item.sender_id === profile?.id;
           return (
@@ -323,7 +415,8 @@ function ChatPanel({
                     {item.sender?.full_name || 'Participant'}
                   </Text>
                 )}
-                <Text style={styles.chatText}>{item.content}</Text>
+                {/* Use MessageText so @mentions are highlighted */}
+                <MessageText text={item.content} style={styles.chatText} />
                 <Text style={styles.chatTime}>
                   {new Date(item.created_at).toLocaleTimeString([], {
                     hour: '2-digit',
@@ -342,7 +435,7 @@ function ChatPanel({
             <MessageSquare color={Colors.slate500} size={36} />
             <Text style={styles.chatEmptyTitle}>No messages yet</Text>
             <Text style={styles.chatEmptySubtitle}>
-              Messages are visible to everyone in this call
+              Type @ to mention someone
             </Text>
           </View>
         }
@@ -350,13 +443,23 @@ function ChatPanel({
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        keyboardVerticalOffset={0}
       >
+        {/* Mention suggestions — shown ABOVE the input when @ is active */}
+        {mentionQuery !== null && (
+          <MentionSuggestions
+            query={mentionQuery}
+            participants={participants}
+            onSelect={insertMention}
+          />
+        )}
+
         <View style={styles.chatInputRow}>
           <TextInput
+            ref={inputRef}
             value={text}
-            onChangeText={setText}
-            placeholder="Send a message to everyone..."
+            onChangeText={handleTextChange}
+            placeholder="Message everyone... (@ to mention)"
             placeholderTextColor={Colors.slate500}
             style={styles.chatInput}
             multiline
@@ -1640,6 +1743,7 @@ export default function MeetingRoomScreen() {
             <ChatPanel
               meetingId={meetingId}
               profile={profile}
+              participants={participants}
               onClose={() => setActivePanel('none')}
             />
           </View>
@@ -2199,5 +2303,60 @@ const styles = StyleSheet.create({
   },
   handRaisedSelfText: {
     fontFamily: Fonts.Outfit_700Bold, fontSize: 12, color: '#f59e0b',
+  },
+
+  // ── @mention suggestions list ──────────────────────────────────────────
+  mentionList: {
+    backgroundColor: '#0d1424',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    maxHeight: 200,
+  },
+  mentionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  mentionAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(133,173,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(133,173,255,0.25)',
+  },
+  mentionAvatarText: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 15,
+    color: '#85adff',
+  },
+  mentionMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  mentionName: {
+    fontFamily: Fonts.Outfit_600SemiBold,
+    fontSize: 14,
+    color: '#e4e7fb',
+  },
+  mentionTag: {
+    fontFamily: Fonts.SpaceMono_400Regular,
+    fontSize: 11,
+    color: Colors.slate500,
+  },
+
+  // ── @mention highlight inside message bubble ────────────────────────────
+  mentionHighlight: {
+    fontFamily: Fonts.Outfit_700Bold,
+    color: '#85adff',
+    backgroundColor: 'rgba(133,173,255,0.12)',
+    borderRadius: 4,
+    paddingHorizontal: 2,
   },
 });

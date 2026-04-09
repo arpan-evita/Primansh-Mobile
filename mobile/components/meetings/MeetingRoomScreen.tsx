@@ -69,6 +69,7 @@ import {
 import { Fonts, Colors } from '../../lib/theme';
 import { supabase } from '../../lib/supabase';
 import { useMeetingChat } from '../../hooks/useMeetingChat';
+import { Audio } from 'expo-av';
 import {
   RTCPeerConnection,
   RTCIceCandidate,
@@ -768,6 +769,411 @@ function MeetingInfoModal({
   );
 }
 
+// ─── VoiceCallUI ─────────────────────────────────────────────────────────────
+// Phone-call style screen for audio-only calls (WhatsApp / iOS call look)
+
+function VoiceCallUI({
+  participants,
+  profile,
+  meetingTitle,
+  formattedTime,
+  isMuted,
+  isSpeakerOn,
+  remoteMuted,
+  onToggleMute,
+  onToggleSpeaker,
+  onLeave,
+  onEndForAll,
+}: {
+  participants: LiveParticipant[];
+  profile: any;
+  meetingTitle: string;
+  formattedTime: string;
+  isMuted: boolean;
+  isSpeakerOn: boolean;
+  remoteMuted: Record<string, boolean>;
+  onToggleMute: () => void;
+  onToggleSpeaker: () => void;
+  onLeave: () => void;
+  onEndForAll?: () => void;
+}) {
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const otherParticipants = participants.filter((p) => !p.isLocal);
+  const isGroup = otherParticipants.length > 1;
+
+  // Pulsing ring on avatar
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.15,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
+
+  const handleEndPress = () => {
+    if (onEndForAll) {
+      Alert.alert('End Call', '', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Leave Call', onPress: onLeave },
+        { text: 'End for Everyone', style: 'destructive', onPress: onEndForAll },
+      ]);
+    } else {
+      onLeave();
+    }
+  };
+
+  return (
+    <LinearGradient
+      colors={['#0a0f1e', '#111827', '#0f172a']}
+      style={voiceStyles.screen}
+    >
+      <SafeAreaView style={voiceStyles.safeArea}>
+        {/* Header */}
+        <View style={voiceStyles.header}>
+          <Text style={voiceStyles.meetingLabel}>{meetingTitle}</Text>
+          <View style={voiceStyles.timerRow}>
+            <View style={voiceStyles.activeDot} />
+            <Text style={voiceStyles.timerText}>{formattedTime}</Text>
+          </View>
+        </View>
+
+        {/* Participant display */}
+        <View style={voiceStyles.body}>
+          {isGroup ? (
+            /* Group call: row of avatars */
+            <View style={voiceStyles.groupAvatarRow}>
+              {otherParticipants.slice(0, 4).map((p, idx) => (
+                <View key={p.id} style={voiceStyles.groupAvatarWrap}>
+                  <View style={[voiceStyles.groupAvatar, { marginLeft: idx > 0 ? -18 : 0 }]}>
+                    <Text style={voiceStyles.groupAvatarText}>
+                      {(p.name || 'U')[0].toUpperCase()}
+                    </Text>
+                  </View>
+                  {remoteMuted[p.id] && (
+                    <View style={voiceStyles.mutedBadge}>
+                      <Text style={{ fontSize: 8 }}>🔇</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+              {otherParticipants.length > 4 && (
+                <View style={[voiceStyles.groupAvatar, voiceStyles.overflowAvatar, { marginLeft: -18 }]}>
+                  <Text style={voiceStyles.overflowText}>+{otherParticipants.length - 4}</Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            /* 1-to-1: large pulsing avatar */
+            <View style={voiceStyles.soloAvatarContainer}>
+              <Animated.View
+                style={[
+                  voiceStyles.pulseRing,
+                  { transform: [{ scale: pulseAnim }] },
+                ]}
+              />
+              <View style={voiceStyles.soloAvatar}>
+                <Text style={voiceStyles.soloAvatarText}>
+                  {(otherParticipants[0]?.name || profile?.full_name || 'U')[0].toUpperCase()}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Name(s) */}
+          <Text style={voiceStyles.callerName}>
+            {isGroup
+              ? `${otherParticipants.length} Participants`
+              : otherParticipants[0]?.name || 'Connecting...'}
+          </Text>
+
+          <Text style={voiceStyles.callStatus}>
+            {participants.length <= 1 ? 'Connecting...' : 'Connected · Encrypted'}
+          </Text>
+
+          {/* Group participant list (if group call) */}
+          {isGroup && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={voiceStyles.participantScroll}
+              contentContainerStyle={voiceStyles.participantScrollContent}
+            >
+              {otherParticipants.map((p) => (
+                <View key={p.id} style={voiceStyles.participantChip}>
+                  <Text style={voiceStyles.participantChipInitial}>
+                    {(p.name || 'U')[0].toUpperCase()}
+                  </Text>
+                  <Text style={voiceStyles.participantChipName} numberOfLines={1}>
+                    {p.name.split(' ')[0]}
+                  </Text>
+                  {remoteMuted[p.id] && (
+                    <Text style={{ fontSize: 10 }}>🔇</Text>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* Controls */}
+        <View style={voiceStyles.controlsOuter}>
+          <View style={voiceStyles.controlsRow}>
+            {/* Mute */}
+            <TouchableOpacity
+              onPress={onToggleMute}
+              style={[voiceStyles.ctrlBtn, isMuted && voiceStyles.ctrlBtnActive]}
+              activeOpacity={0.8}
+            >
+              <Text style={voiceStyles.ctrlIcon}>{isMuted ? '🔇' : '🎤'}</Text>
+              <Text style={voiceStyles.ctrlLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+            </TouchableOpacity>
+
+            {/* End call — center, prominent */}
+            <TouchableOpacity
+              onPress={handleEndPress}
+              style={voiceStyles.endCallBtn}
+              activeOpacity={0.85}
+            >
+              <PhoneOff color="#fff" size={28} />
+            </TouchableOpacity>
+
+            {/* Speaker */}
+            <TouchableOpacity
+              onPress={onToggleSpeaker}
+              style={[voiceStyles.ctrlBtn, isSpeakerOn && voiceStyles.ctrlBtnActive]}
+              activeOpacity={0.8}
+            >
+              <Text style={voiceStyles.ctrlIcon}>{isSpeakerOn ? '🔊' : '🔈'}</Text>
+              <Text style={voiceStyles.ctrlLabel}>{isSpeakerOn ? 'Speaker' : 'Earpiece'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
+  );
+}
+
+const voiceStyles = StyleSheet.create({
+  screen: { flex: 1 },
+  safeArea: { flex: 1, justifyContent: 'space-between' },
+
+  header: {
+    alignItems: 'center',
+    paddingTop: 20,
+    paddingHorizontal: 24,
+    gap: 6,
+  },
+  meetingLabel: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 22,
+    color: '#e4e7fb',
+    letterSpacing: -0.3,
+  },
+  timerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  activeDot: {
+    width: 7, height: 7, borderRadius: 999,
+    backgroundColor: '#22c55e',
+  },
+  timerText: {
+    fontFamily: Fonts.SpaceMono_400Regular,
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+
+  body: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+    paddingHorizontal: 32,
+  },
+
+  // Solo call avatar
+  soloAvatarContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(133,173,255,0.12)',
+    borderWidth: 2,
+    borderColor: 'rgba(133,173,255,0.3)',
+  },
+  soloAvatar: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: '#1e2538',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#85adff',
+  },
+  soloAvatarText: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 44,
+    color: '#85adff',
+  },
+
+  // Group call avatars
+  groupAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  groupAvatarWrap: {
+    position: 'relative',
+  },
+  groupAvatar: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#1e2538',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#0a0f1e',
+  },
+  groupAvatarText: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 26,
+    color: '#85adff',
+  },
+  overflowAvatar: {
+    backgroundColor: '#2f2ebe',
+  },
+  overflowText: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 14,
+    color: '#9093ff',
+  },
+  mutedBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    backgroundColor: '#0a0f1e',
+    borderRadius: 8,
+    padding: 2,
+  },
+
+  callerName: {
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 30,
+    color: '#fff',
+    letterSpacing: -0.5,
+    textAlign: 'center',
+  },
+  callStatus: {
+    fontFamily: Fonts.SpaceMono_400Regular,
+    fontSize: 11,
+    color: '#475569',
+    textAlign: 'center',
+  },
+
+  // Group participant row
+  participantScroll: {
+    maxHeight: 72,
+    marginTop: 8,
+  },
+  participantScrollContent: {
+    gap: 10,
+    paddingHorizontal: 8,
+  },
+  participantChip: {
+    alignItems: 'center',
+    gap: 4,
+    minWidth: 52,
+  },
+  participantChipInitial: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1e2538',
+    textAlign: 'center',
+    lineHeight: 40,
+    fontFamily: Fonts.Outfit_700Bold,
+    fontSize: 16,
+    color: '#85adff',
+    borderWidth: 1,
+    borderColor: 'rgba(133,173,255,0.25)',
+    overflow: 'hidden',
+  },
+  participantChipName: {
+    fontFamily: Fonts.Outfit_500Medium,
+    fontSize: 10,
+    color: '#94a3b8',
+  },
+
+  // Bottom controls
+  controlsOuter: {
+    paddingBottom: 48,
+    paddingHorizontal: 32,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  ctrlBtn: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  ctrlBtnActive: {
+    backgroundColor: 'rgba(133,173,255,0.15)',
+    borderColor: 'rgba(133,173,255,0.35)',
+  },
+  ctrlIcon: {
+    fontSize: 26,
+  },
+  ctrlLabel: {
+    fontFamily: Fonts.Outfit_600SemiBold,
+    fontSize: 10,
+    color: '#94a3b8',
+  },
+  endCallBtn: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#dc2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#ef4444',
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
+  },
+});
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function MeetingRoomScreen() {
@@ -794,6 +1200,7 @@ export default function MeetingRoomScreen() {
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [isHandRaised, setIsHandRaised] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('speaker');
   const [activePanel, setActivePanel] = useState<ActivePanel>('none');
   const [pinnedId, setPinnedId] = useState<string | null>(null);
@@ -1171,6 +1578,22 @@ export default function MeetingRoomScreen() {
 
   const toggleMute = useCallback(() => applyMute(), [applyMute]);
 
+  const toggleSpeaker = useCallback(async () => {
+    try {
+      const next = !isSpeakerOn;
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        // Android: false = loudspeaker, true = earpiece
+        playsThroughEarpieceAndroid: !next,
+        staysActiveInBackground: true,
+      });
+      setIsSpeakerOn(next);
+    } catch (e) {
+      console.warn('[VoiceCall] Speaker toggle failed:', e);
+    }
+  }, [isSpeakerOn]);
+
   const toggleVideo = useCallback(() => {
     const videoTrack = localStreamRef.current?.getVideoTracks()[0];
     if (!videoTrack) return;
@@ -1436,6 +1859,25 @@ export default function MeetingRoomScreen() {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+    );
+  }
+
+  // ── Voice call UI (audio-only = phone call style) ──────────────────────────
+  if (isAudioOnly && hasJoined) {
+    return (
+      <VoiceCallUI
+        participants={participants}
+        profile={profile}
+        meetingTitle={meetingData?.conversation?.title || 'Voice Call'}
+        formattedTime={formattedTime}
+        isMuted={isMuted}
+        isSpeakerOn={isSpeakerOn}
+        remoteMuted={remoteMuted}
+        onToggleMute={toggleMute}
+        onToggleSpeaker={toggleSpeaker}
+        onLeave={handleLeave}
+        onEndForAll={isHost ? handleEndForAll : undefined}
+      />
     );
   }
 

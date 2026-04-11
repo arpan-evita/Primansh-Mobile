@@ -5,6 +5,8 @@ import { Zap } from 'lucide-react-native';
 import { Colors, Fonts } from '../../../lib/theme';
 import { GlassCard } from '../../../components/ui/GlassCard';
 
+import LiveLeadsScreen from '../../../components/leads/LiveLeadsScreen';
+
 export default function LeadsScreen() {
   return (
     <SafeAreaView style={styles.container}>
@@ -13,18 +15,7 @@ export default function LeadsScreen() {
         <Text style={styles.headerSubtitle}>MANAGE YOUR SALES PIPELINE</Text>
       </View>
       
-      <View style={styles.content}>
-        <GlassCard style={styles.card} intensity={20}>
-          <View style={styles.iconContainer}>
-            <Zap color={Colors.accent} size={40} />
-          </View>
-          <Text style={styles.title}>Module Synchronizing</Text>
-          <Text style={styles.description}>
-            The CRM engine is currently being optimized for native mobile performance. 
-            Detailed lead tracking will be available in the next build.
-          </Text>
-        </GlassCard>
-      </View>
+      <LiveLeadsScreen />
     </SafeAreaView>
   );
 }

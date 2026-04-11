@@ -1,10 +1,14 @@
-import React, { useState } from "react";
+import React, { lazy, Suspense, useState } from "react";
 import { PortalSidebar } from "@/components/layout/PortalSidebar";
 import { PortalBottomNav } from "@/components/layout/PortalBottomNav";
-import { AgencyChatbot } from "@/components/chat/AgencyChatbot";
 import { Menu, ChevronRight, Home } from "lucide-react";
 import { Link } from "react-router-dom";
-import { cn } from "@/lib/utils";
+
+const LazyAgencyChatbot = lazy(() =>
+  import("@/components/chat/AgencyChatbotLauncher").then((module) => ({
+    default: module.AgencyChatbotLauncher,
+  })),
+);
 
 interface PortalLayoutProps {
   children: React.ReactNode;
@@ -110,11 +114,13 @@ export function PortalLayout({ children, title, subtitle, clientId }: PortalLayo
       {/* 🤖 FLOATING CHATBOT */}
       {clientId && (
         <div className="fixed bottom-6 right-6 z-50 transition-transform hover:scale-105 active:scale-95 duration-300">
-          <AgencyChatbot
-            type="client"
-            clientId={clientId}
-            userId={clientId}
-          />
+          <Suspense fallback={null}>
+            <LazyAgencyChatbot
+              type="client"
+              clientId={clientId}
+              userId={clientId}
+            />
+          </Suspense>
         </div>
       )}
     </div>

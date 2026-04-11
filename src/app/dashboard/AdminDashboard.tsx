@@ -21,12 +21,26 @@ interface AdminDashboardProps {
   atRiskClients: any[];
   totalRevenue: number;
   activeClients: number;
+  portfolioHealth: number;
+  revenueTrend: number;
 }
 
 export function AdminDashboard({
-  stats, agencyTrend, clients, recentActivity, topClients, atRiskClients, totalRevenue, activeClients
+  stats,
+  agencyTrend,
+  clients,
+  recentActivity,
+  topClients,
+  atRiskClients,
+  totalRevenue,
+  activeClients,
+  portfolioHealth,
+  revenueTrend,
 }: AdminDashboardProps) {
   const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formattedPortfolioHealth = Number.isFinite(portfolioHealth) ? portfolioHealth.toFixed(1) : "0.0";
+  const formattedRevenueTrend = `${revenueTrend >= 0 ? '+' : ''}${revenueTrend.toFixed(1)}%`;
+  const revenueTrendClass = revenueTrend >= 0 ? "text-emerald-400" : "text-orange-400";
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -57,7 +71,7 @@ export function AdminDashboard({
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Portfolio Health</p>
             <div className="flex items-center justify-end gap-2 text-emerald-400 font-mono text-lg font-medium">
               <ShieldCheck size={16} className="text-emerald-500/60" />
-              94.2%
+              {formattedPortfolioHealth}%
             </div>
           </div>
         </div>
@@ -151,7 +165,7 @@ export function AdminDashboard({
                   tick={{ fill: "#475569", fontSize: 10, fontWeight: 700 }} 
                 />
                 <Tooltip
-                  contentStyle={{ background: "rgba(7, 11, 20, 0.95)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "16px", backdropBlur: "12px", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}
+                  contentStyle={{ background: "rgba(7, 11, 20, 0.95)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "16px", backdropFilter: "blur(12px)", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}
                   itemStyle={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px" }}
                   labelStyle={{ color: "#94a3b8", marginBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "4px" }}
                 />
@@ -204,7 +218,7 @@ export function AdminDashboard({
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest leading-none mb-1">+12.4%</p>
+                <p className={`text-[10px] font-bold uppercase tracking-widest leading-none mb-1 ${revenueTrendClass}`}>{formattedRevenueTrend}</p>
                 <p className="text-[10px] text-slate-600 font-bold uppercase tracking-tighter">vs Last Month</p>
               </div>
             </div>

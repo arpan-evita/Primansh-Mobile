@@ -9,6 +9,7 @@ interface GlassCardProps {
   intensity?: number;
   tint?: 'light' | 'dark' | 'default';
   gradient?: boolean;
+  noPadding?: boolean;
 }
 
 export const GlassCard: React.FC<GlassCardProps> = ({ 
@@ -16,7 +17,8 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   style, 
   intensity = 40, 
   tint = 'dark',
-  gradient = true
+  gradient = true,
+  noPadding = false
 }) => {
   return (
     <View style={[styles.container, style]}>
@@ -34,7 +36,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
         />
       )}
       
-      <View style={styles.innerContent}>
+      <View style={[styles.innerContent, noPadding && styles.noPadding]}>
         {children}
       </View>
     </View>
@@ -58,5 +60,8 @@ const styles = StyleSheet.create({
   },
   innerContent: {
     padding: 24,
+  },
+  noPadding: {
+    padding: 0,
   },
 });

@@ -1001,21 +1001,28 @@ export default function MeetingRoomPage() {
       
       if (partError && partError.code !== '23505') throw partError; // Ignore if already exists
 
-      // 2. Send invitation message (Try 'meeting' type, fallback to 'text' if DB constraint fails)
-      const { error: msgError } = await supabase.rpc('send_message_v2', {
-        p_conversation_id: meetingData.conversation_id,
-        p_content: isAudioOnly ? 'Added to Voice Call' : 'Added to Meeting',
-        p_message_type: 'meeting',
-        p_meeting_id: meetingData.id
+      // 2. Get or create 1:1 private chat with the invitee
+      const { data: convId, error: convError } = await supabase.rpc('upsert_conversation_v1', {
+        p_participant_ids: [profile?.id, targetProfileId]
       });
-      
-      if (msgError) {
-        console.warn('Meeting message type failed, falling back to text:', msgError);
-        await supabase.rpc('send_message_v2', {
-          p_conversation_id: meetingData.conversation_id,
+
+      if (!convError && convId) {
+        // 3. Send invitation message in their personal 1:1 chat
+        const { error: msgError } = await supabase.rpc('send_message_v2', {
+          p_conversation_id: convId,
           p_content: isAudioOnly ? 'Added to Voice Call' : 'Added to Meeting',
-          p_message_type: 'text'
+          p_message_type: 'meeting',
+          p_meeting_id: meetingData.id
         });
+        
+        if (msgError) {
+          console.warn('Meeting message type failed, falling back to text:', msgError);
+          await supabase.rpc('send_message_v2', {
+            p_conversation_id: convId,
+            p_content: isAudioOnly ? 'Added to Voice Call' : 'Added to Meeting',
+            p_message_type: 'text'
+          });
+        }
       }
 
       // 3. Broadcast for zero-latency join notice

@@ -35,8 +35,11 @@ const Leads = lazy(() => import("./app/leads/page"));
 const PortalDashboard = lazy(() => import("./app/portal/[id]/page"));
 const InvoiceDetail = lazy(() => import("./app/portal/InvoiceDetail"));
 const ProfilePage = lazy(() => import("./app/profile/page"));
-
-import { CallManager } from "./components/meetings/CallManager";
+const CallManager = lazy(() =>
+  import("./components/meetings/CallManager").then((module) => ({
+    default: module.CallManager,
+  })),
+);
 import ScrollToTop from "./components/layout/ScrollToTop";
 import "./app/globals.css";
 
@@ -59,6 +62,18 @@ const RootRedirect = () => {
   return <Navigate to="/dashboard" replace />;
 };
 
+const AuthenticatedCallManager = () => {
+  const { session, loading } = useAuth();
+
+  if (loading || !session) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <CallManager />
+    </Suspense>
+  );
+};
+
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
@@ -68,7 +83,7 @@ const App = () => {
           <Sonner position="top-right" expand={true} richColors />
           <BrowserRouter>
             <ScrollToTop />
-            <CallManager />
+            <AuthenticatedCallManager />
             <Suspense fallback={<LoadingScreen />}>
               <Routes>
                 {/* Root Route - Smart Redirect */}

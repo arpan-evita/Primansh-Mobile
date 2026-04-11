@@ -1,35 +1,75 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, Image } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Star, Trash2 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
 import { GlassCard } from '../../../components/ui/GlassCard';
 import { Colors, Fonts } from '../../../lib/theme';
+import { useMobileSession } from '../../../context/MobileSessionContext';
 
 export default function TestimonialsScreen() {
   const router = useRouter();
+  const { profile } = useMobileSession();
   const [testimonials, setTestimonials] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function fetchTestimonials() {
     setLoading(true);
-    const { data } = await supabase
+    let query = supabase
       .from('testimonials')
       .select('*')
       .order('created_at', { ascending: false });
     
+    // Non-admins only see approved testimonials
+    if (profile?.normalizedRole !== 'admin') {
+      query = query.eq('status', 'approved');
+    }
+
+    const { data } = await query;
     if (data) setTestimonials(data);
     setLoading(false);
   }
 
   useEffect(() => {
     fetchTestimonials();
-  }, []);
+
+    const channel = supabase
+      .channel('testimonial_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'testimonials' }, () => {
+        fetchTestimonials();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile]);
+
+  const handleUpdateStatus = async (id: string, status: 'approved' | 'pending') => {
+    const { error } = await supabase.from('testimonials').update({ status }).eq('id', id);
+    if (!error) {
+      Alert.alert('Success', `Testimonial ${status === 'approved' ? 'approved' : 'moved to pending'}`);
+      fetchTestimonials();
+    }
+  };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('testimonials').delete().eq('id', id);
-    fetchTestimonials();
+    Alert.alert(
+      'Delete Testimonial',
+      'Are you sure you want to permanently remove this?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive', 
+          onPress: async () => {
+            await supabase.from('testimonials').delete().eq( 'id', id);
+            fetchTestimonials();
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -38,7 +78,7 @@ export default function TestimonialsScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
           <ArrowLeft color="#fff" size={24} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Testimonials</Text>
+        <Text style={styles.headerTitle}>Social Proof</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -46,44 +86,67 @@ export default function TestimonialsScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTestimonials} tintColor={Colors.accent} />}
       >
-        <Text style={styles.sectionTitle}>SOCIAL PROOF</Text>
+        <Text style={styles.sectionTitle}>CLIENT TESTIMONIALS</Text>
         
         {testimonials.map((t) => (
           <GlassCard key={t.id} style={styles.card} intensity={15}>
             <View style={styles.cardHeader}>
               <View style={styles.clientInfo}>
                 <Image 
-                  source={{ uri: t.client_image || 'https://via.placeholder.com/100/1e293b/ffffff' }}
+                  source={{ uri: t.image_url || 'https://via.placeholder.com/100/1e293b/ffffff' }}
                   style={styles.clientImage}
                 />
                 <View>
-                  <Text style={styles.clientName}>{t.client_name}</Text>
-                  <Text style={styles.clientRole}>{t.client_role} @ {t.company_name}</Text>
+                  <Text style={styles.clientName}>{t.name}</Text>
+                  <Text style={styles.clientRole}>{t.role} {t.company_name ? `@ ${t.company_name}` : ''}</Text>
                 </View>
               </View>
               <View style={styles.rating}>
-                <Star size={14} color="#fbbf24" fill="#fbbf24" />
+                <Star size={12} color="#fbbf24" fill="#fbbf24" />
                 <Text style={styles.ratingText}>{t.rating}</Text>
               </View>
             </View>
             
-            <Text style={styles.content}>"{t.content}"</Text>
+            <Text style={styles.content}>"{t.quote}"</Text>
             
             <View style={styles.footer}>
-              <View style={[styles.statusBadge, { backgroundColor: t.is_featured ? '#10b9811A' : '#4755691A' }]}>
-                <Text style={[styles.statusText, { color: t.is_featured ? '#10b981' : Colors.slate500 }]}>
-                  {t.is_featured ? 'FEATURED' : 'STANDARD'}
+              <View style={[styles.statusBadge, { backgroundColor: t.status === 'approved' ? 'rgba(16,185,129,0.1)' : 'rgba(251,191,36,0.1)' }]}>
+                <Text style={[styles.statusText, { color: t.status === 'approved' ? '#10b981' : '#fbbf24' }]}>
+                  {t.status.toUpperCase()}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => handleDelete(t.id)} style={styles.actionIcon}>
-                <Trash2 size={16} color="#ef4444" />
-              </TouchableOpacity>
+              
+              {profile?.normalizedRole === 'admin' && (
+                <View style={styles.adminActions}>
+                   {t.status === 'pending' && (
+                     <TouchableOpacity 
+                      onPress={() => handleUpdateStatus(t.id, 'approved')}
+                      style={styles.approveIcon}
+                     >
+                       <Star size={16} color="#10b981" />
+                     </TouchableOpacity>
+                   )}
+                   {t.status === 'approved' && (
+                     <TouchableOpacity 
+                      onPress={() => handleUpdateStatus(t.id, 'pending')}
+                      style={styles.actionIcon}
+                     >
+                       <ArrowLeft size={16} color={Colors.slate500} />
+                     </TouchableOpacity>
+                   )}
+                   <TouchableOpacity onPress={() => handleDelete(t.id)} style={styles.deleteIcon}>
+                     <Trash2 size={16} color="#ef4444" />
+                   </TouchableOpacity>
+                </View>
+              )}
             </View>
           </GlassCard>
         ))}
 
         {testimonials.length === 0 && !loading && (
-          <Text style={styles.emptyText}>No testimonials available.</Text>
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No testimonials synchronizing with this channel.</Text>
+          </View>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -150,6 +213,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     marginRight: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   clientName: {
     fontFamily: Fonts.Outfit_700Bold,
@@ -159,7 +223,7 @@ const styles = StyleSheet.create({
   },
   clientRole: {
     fontFamily: Fonts.SpaceMono_400Regular,
-    fontSize: 10,
+    fontSize: 9,
     color: Colors.slate500,
   },
   rating: {
@@ -181,7 +245,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#fff',
     lineHeight: 20,
-    marginBottom: 16,
+    marginBottom: 20,
     fontStyle: 'italic',
   },
   footer: {
@@ -198,19 +262,38 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   statusText: {
-    fontFamily: Fonts.Outfit_700Bold,
-    fontSize: 9,
+    fontFamily: Fonts.SpaceMono_700Bold,
+    fontSize: 8,
     letterSpacing: 1,
+  },
+  adminActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  approveIcon: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
   },
   actionIcon: {
     padding: 8,
     borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  deleteIcon: {
+    padding: 8,
+    borderRadius: 8,
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
   },
+  emptyContainer: {
+    paddingVertical: 60,
+    alignItems: 'center',
+  },
   emptyText: {
-    fontFamily: Fonts.SpaceMono_400Regular,
-    color: Colors.slate500,
+    fontFamily: Fonts.Outfit_400Regular,
+    color: Colors.slate600,
     textAlign: 'center',
-    marginTop: 40,
+    fontSize: 14,
   }
 });

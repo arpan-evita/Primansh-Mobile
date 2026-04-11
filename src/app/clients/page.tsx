@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -163,6 +163,30 @@ export default function ClientsPage() {
     e.preventDefault(); e.stopPropagation();
     if (window.confirm("Remove this client entity?")) deleteClientMutation.mutate(id);
   };
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabase
+      .channel(`web-clients-sync:${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['admin_clients'] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_assigned_clients' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['admin_clients'] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['admin_clients'] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['team_members_list'] });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id, queryClient]);
 
   return (
     <AppShell title={isTeam ? "My Clients" : "Client Network"} subtitle={isTeam ? "Entities assigned to you" : `Managing ${clients.length} premium client entities`}>

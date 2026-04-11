@@ -12,14 +12,31 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { generateInvoicePDF } from "@/lib/invoice-pdf";
+import { useEffect } from "react";
 
 export default function BillingPage() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
-  const [newInvoice, setNewInvoice] = useState({ client_id: "", due_date: "", tax_rate: 0, notes: "" });
+  const [newInvoice, setNewInvoice] = useState({ client_id: "", due_date: "", tax_rate: 18, notes: "" });
   const [items, setItems] = useState([{ description: "", quantity: 1, rate: 0 }]);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+          .then(({ data }) => setCurrentUserRole(data?.role));
+      }
+    });
+  }, []);
+
+  const isAdmin = currentUserRole === 'admin';
 
   const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
   const tax = subtotal * (newInvoice.tax_rate / 100);
@@ -67,8 +84,8 @@ export default function BillingPage() {
         const { error } = await supabase.from('invoices').update(submission).eq('id', editingInvoiceId);
         if (error) throw error;
       } else {
-        const invNum = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-        const { error } = await supabase.from('invoices').insert({ ...submission, invoice_number: invNum, status: 'pending' });
+
+        const { error } = await supabase.from('invoices').insert({ ...submission, status: 'draft' });
         if (error) throw error;
       }
     },
@@ -83,7 +100,7 @@ export default function BillingPage() {
 
   const openNewDialog = () => {
     setEditingInvoiceId(null);
-    setNewInvoice({ client_id: "", due_date: "", tax_rate: 0, notes: "" });
+    setNewInvoice({ client_id: "", due_date: "", tax_rate: 18, notes: "" });
     setItems([{ description: "", quantity: 1, rate: 0 }]);
     setIsNewInvoiceOpen(true);
   };
@@ -124,7 +141,10 @@ export default function BillingPage() {
       const newStatus = currentStatus === 'paid' ? 'pending' : 'paid';
       const { error } = await supabase
         .from('invoices')
-        .update({ status: newStatus })
+        .update({
+          status: newStatus,
+          paid_date: newStatus === 'paid' ? new Date().toISOString().split('T')[0] : null,
+        })
         .eq('id', id);
       if (error) throw error;
       return newStatus;
@@ -177,6 +197,25 @@ export default function BillingPage() {
     inv.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  useEffect(() => {
+    const channel = supabase
+      .channel('web-billing-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['admin_invoices'] });
+        queryClient.invalidateQueries({ queryKey: ['admin_analytics_full'] });
+        queryClient.invalidateQueries({ queryKey: ['portal_invoices'] });
+        queryClient.invalidateQueries({ queryKey: ['portal_invoice_detail'] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['admin_invoices'] });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
+
   if (isLoading) return (
     <AppShell title="Billing & Invoices" subtitle="Synchronizing financial operations...">
         <div className="flex flex-col items-center justify-center py-32 gap-4">
@@ -223,7 +262,9 @@ export default function BillingPage() {
           </div>
           <Dialog open={isNewInvoiceOpen} onOpenChange={(open) => { if (!open) closeDialog(); else setIsNewInvoiceOpen(true); }}>
             <DialogTrigger asChild>
-              <button className="btn-primary flex items-center gap-1.5 text-xs" onClick={openNewDialog}><Plus size={12} /> Create Invoice</button>
+              {isAdmin && (
+                <button className="btn-primary flex items-center gap-1.5 text-xs" onClick={openNewDialog}><Plus size={12} /> Create Invoice</button>
+              )}
             </DialogTrigger>
             <DialogContent className="bg-[#0a0f1d] border-white/10 text-white max-w-3xl p-0 overflow-hidden">
               <div className="p-6 border-b border-white/5 bg-[#0f172a]/50">
@@ -401,41 +442,46 @@ export default function BillingPage() {
                   </div>
                   <span className={`badge ${getStatusColor(inv.status)} w-fit`}>{inv.status}</span>
                   <div className="flex justify-end gap-2 pr-2">
-                    <button 
-                      onClick={() => openEditDialog(inv)}
-                      className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
-                      title="Edit Invoice"
-                    >
-                      <Edit size={14} />
-                    </button>
+                    {isAdmin && (
+                      <button 
+                        onClick={() => openEditDialog(inv)}
+                        disabled={inv.status === 'paid'}
+                        className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={inv.status === 'paid' ? "Cannot edit paid invoice" : "Edit Invoice"}
+                      >
+                        <Edit size={14} />
+                      </button>
+                    )}
                     <button
-                      onClick={() => markAsPaidMutation.mutate({ id: inv.id, currentStatus: inv.status })}
-                      disabled={markAsPaidMutation.isPending}
+                      onClick={() => isAdmin && markAsPaidMutation.mutate({ id: inv.id, currentStatus: inv.status })}
+                      disabled={markAsPaidMutation.isPending || !isAdmin}
                       className={cn(
                         "p-2 rounded-lg transition-all active:scale-95",
+                        !isAdmin && "opacity-50 cursor-not-allowed",
                         inv.status === 'paid'
                           ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20"
                           : "bg-slate-800 text-slate-400 hover:bg-emerald-500/10 hover:text-emerald-400 hover:border hover:border-emerald-500/20"
                       )}
-                      title={inv.status === 'paid' ? 'Mark as Pending' : 'Mark as Paid'}
+                      title={!isAdmin ? "Admins only" : (inv.status === 'paid' ? 'Mark as Pending' : 'Mark as Paid')}
                     >
                       {markAsPaidMutation.isPending ? <Loader2 className="animate-spin" size={14} /> : inv.status === 'paid' ? <CheckCircle2 size={14} /> : <Clock size={14} />}
                     </button>
                     <button 
                       onClick={() => {
+                        if (!isAdmin) return;
                         sendEmailMutation.mutate(inv);
-                        // Fallback: Still allow manual mailto if they click again or if mutation is slow
                         const mailtoStr = `mailto:${inv.client_email || ''}?subject=Invoice ${inv.invoice_number || inv.id.substring(0,8)}&body=Hi ${inv.client_name},%0A%0AHere is your invoice ${inv.invoice_number || inv.id.substring(0,8)} for ${formatCurrency(inv.amount)}.%0A%0AYou can view and manage your billing history in your client portal: ${window.location.origin}/clientportal/${inv.client_slug}/invoice/${inv.id}%0A%0AThank you for your business!`;
                         if (sendEmailMutation.isError) window.location.href = mailtoStr;
                       }}
                       className={cn(
                         "p-2 rounded-lg transition-all active:scale-95",
+                        !isAdmin && "opacity-50 cursor-not-allowed",
                         inv.sent_at 
                           ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
                           : "bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500 hover:text-white"
                       )}
-                      title={inv.sent_at ? `Sent on ${new Date(inv.sent_at).toLocaleDateString()}` : "Dispatch to Client"}
-                      disabled={sendEmailMutation.isPending}
+                      title={!isAdmin ? "Admins only" : (inv.sent_at ? `Sent on ${new Date(inv.sent_at).toLocaleDateString()}` : "Dispatch to Client")}
+                      disabled={sendEmailMutation.isPending || !isAdmin}
                     >
                       {sendEmailMutation.isPending ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
                     </button>

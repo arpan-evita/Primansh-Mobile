@@ -1,4 +1,5 @@
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,7 +20,9 @@ import { PortalLayout } from "@/components/layout/PortalLayout";
 
 export default function InvoiceDetail() {
   const { slug, invoiceId } = useParams<{ slug: string; invoiceId: string }>();
+  const [searchParams] = useSearchParams();
   const { profile } = useAuth();
+  const autoDownloadedRef = useRef(false);
 
   const { data: invoice, isLoading: isInvoiceLoading } = useQuery({
     queryKey: ['portal_invoice_detail', invoiceId],
@@ -38,9 +41,22 @@ export default function InvoiceDetail() {
 
   const isLoading = isInvoiceLoading;
   const client = invoice?.clients;
+  const shouldAutoDownload = searchParams.get("download") === "1";
 
   // Security check: If user is a client, they can only access their associated firm's invoices
   const isAuthorized = !profile || profile.role !== 'client' || (client?.id === profile.associated_client_id);
+
+  useEffect(() => {
+    if (!invoice || !client || !isAuthorized || !shouldAutoDownload || autoDownloadedRef.current) return;
+
+    autoDownloadedRef.current = true;
+    void generateInvoicePDF({
+      ...invoice,
+      client_name: client.firm_name,
+      client_address: client.location,
+      client_email: client.contact_email
+    });
+  }, [client, invoice, isAuthorized, shouldAutoDownload]);
 
   if (isLoading) return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-[#020617]">
@@ -119,9 +135,13 @@ export default function InvoiceDetail() {
             <div className="text-left md:text-right space-y-4">
               <span className={cn(
                 "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider",
-                invoice.status === 'paid' ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"
+                invoice.status === 'paid' ? "bg-emerald-500/10 text-emerald-400" : 
+                invoice.status === 'overdue' ? "bg-red-500/10 text-red-100 border border-red-500/20" :
+                "bg-amber-500/10 text-amber-400"
               )}>
-                {invoice.status === 'paid' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                {invoice.status === 'paid' ? <CheckCircle2 size={12} /> : 
+                 invoice.status === 'overdue' ? <AlertCircle size={12} className="text-red-400" /> : 
+                 <Clock size={12} />}
                 {invoice.status}
               </span>
               <div className="space-y-1">

@@ -6,6 +6,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const ALLOWED_ROLES = new Set(["admin", "team", "client", "seo", "content", "developer", "pending"]);
+
+function normalizeRole(role: string) {
+  const normalized = (role || "client").toLowerCase().trim().replace(/[\s_-]+/g, "");
+
+  if (normalized.includes("admin") || normalized.includes("manager") || normalized.includes("owner")) return "admin";
+  if (normalized.includes("seo")) return "seo";
+  if (normalized.includes("content")) return "content";
+  if (normalized.includes("dev")) return "developer";
+  if (normalized.includes("team")) return "team";
+  if (normalized.includes("pending")) return "pending";
+  return "client";
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -17,11 +31,26 @@ serve(async (req) => {
     );
 
     const { email, password, full_name, role, associated_client_id } = await req.json();
+    const normalizedRole = normalizeRole(role);
 
     // 1. Basic Validation
     if (!email || !password || !role) {
       return new Response(
         JSON.stringify({ error: "Missing required fields (email, password, role)" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!ALLOWED_ROLES.has(normalizedRole)) {
+      return new Response(
+        JSON.stringify({ error: "Invalid role supplied" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (associated_client_id && normalizedRole !== "client") {
+      return new Response(
+        JSON.stringify({ error: "Only client users can be linked to a client record" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -57,11 +86,26 @@ serve(async (req) => {
       .eq("id", user.id)
       .single();
 
-    if (profileError || callerProfile?.role !== "admin") {
+    if (profileError || normalizeRole(callerProfile?.role || "") !== "admin") {
       return new Response(
         JSON.stringify({ error: "Forbidden: Admin access required" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    if (associated_client_id) {
+      const { data: clientRecord, error: clientError } = await supabaseAdmin
+        .from("clients")
+        .select("id")
+        .eq("id", associated_client_id)
+        .single();
+
+      if (clientError || !clientRecord) {
+        return new Response(
+          JSON.stringify({ error: "Associated client not found" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // 3. Create the new user via the Admin API (bypasses email confirmation)
@@ -69,7 +113,7 @@ serve(async (req) => {
       email,
       password,
       email_confirm: true, // Mark email as confirmed immediately
-      user_metadata: { full_name, role },
+      user_metadata: { full_name, role: normalizedRole },
     });
 
     if (createError) {
@@ -81,7 +125,7 @@ serve(async (req) => {
     }
 
     const newUserId = newUserData.user.id;
-    console.log(`[create-user] Created user: ${email} (${newUserId}) with role: ${role}`);
+    console.log(`[create-user] Created user: ${email} (${newUserId}) with role: ${normalizedRole}`);
 
     // 4. If a client ID is provided, link the new profile to that client firm
     if (associated_client_id) {
@@ -104,7 +148,7 @@ serve(async (req) => {
         user: {
           id: newUserId,
           email: newUserData.user.email,
-          role,
+          role: normalizedRole,
           associated_client_id: associated_client_id ?? null,
         },
       }),

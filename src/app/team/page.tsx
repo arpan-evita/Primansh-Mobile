@@ -97,6 +97,27 @@ export default function TeamPage() {
     fetchClients();
   }, []);
 
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const channel = supabase
+      .channel(`team-admin-sync:${currentUser.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        fetchTeamMembers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, () => {
+        fetchClients();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_assigned_clients' }, () => {
+        fetchClients();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id]);
+
   const fetchClients = async () => {
     try {
       const { data, error } = await supabase.from('clients').select('id, firm_name, assigned_team_member_id');

@@ -1,0 +1,7 @@
+
+> mobile@1.0.0 start
+> expo start --dev-client --host localhost --port 8082 --max-workers 1 --clear
+
+Starting project at C:\Users\WIN 11 PRO\OneDrive\web projects\Primansh-app\mobile
+› Port 8082 is being used by another process
+› Skipping dev server

@@ -14,7 +14,7 @@ interface MetricCardProps {
 
 export function MetricCard({ label, value, icon: Icon, color, subtitle, suffix }: MetricCardProps) {
   return (
-    <GlassCard style={styles.metricCard} intensity={25}>
+    <GlassCard style={styles.metricCard} intensity={25} noPadding>
       <View style={styles.metricHeader}>
         <View style={[styles.metricIconBox, { backgroundColor: color + '1A' }]}>
           <Icon color={color} size={18} />
@@ -36,25 +36,25 @@ export function MetricCard({ label, value, icon: Icon, color, subtitle, suffix }
 const styles = StyleSheet.create({
   metricCard: {
     width: '48%',
-    padding: 16,
+    padding: 14,
     borderRadius: 20,
   },
   metricHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   metricIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   metricSubtitle: {
     fontFamily: Fonts.SpaceMono_400Regular,
-    fontSize: 9,
+    fontSize: 8,
     color: '#10b981', // Default green for +X this month style
   },
   metricContent: {
@@ -63,10 +63,10 @@ const styles = StyleSheet.create({
   metricValue: {
     fontFamily: Fonts.Outfit_700Bold,
     fontSize: 20,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   metricLabel: {
-    fontFamily: Fonts.SpaceMono_400Regular,
+    fontFamily: Fonts.SpaceMono_700Bold,
     fontSize: 9,
     color: Colors.slate500,
     letterSpacing: 1,

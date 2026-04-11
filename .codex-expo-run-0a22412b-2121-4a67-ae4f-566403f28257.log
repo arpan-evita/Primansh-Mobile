@@ -1,0 +1,9 @@
+
+> mobile@1.0.0 start
+> expo start --dev-client --host localhost --port 8082 --max-workers 1 --clear
+
+Starting project at C:\Users\WIN 11 PRO\OneDrive\web projects\Primansh-app\mobile
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8082
+Logs for your project will appear below.

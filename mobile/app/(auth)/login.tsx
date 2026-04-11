@@ -7,10 +7,10 @@ import { supabase } from '../../lib/supabase';
 import { useRouter } from 'expo-router';
 import { Mail, Lock, Zap, ArrowRight, ShieldCheck } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as WebBrowser from 'expo-web-browser';
 import { Colors, Fonts } from '../../lib/theme';
 
-const WEB_PORTAL_URL = 'https://primansh.com/forgot-password';
+const WEB_FORGOT_PASSWORD_URL = 'https://primansh.com/forgot-password';
+const WEB_RESET_PASSWORD_URL = 'https://primansh.com/reset-password';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -38,7 +38,21 @@ export default function LoginScreen() {
   }
 
   const handleForgotPassword = async () => {
-    await WebBrowser.openBrowserAsync(WEB_PORTAL_URL);
+    if (!email.trim()) {
+      Alert.alert('Email Required', 'Enter your account email first so we can send a reset link.');
+      return;
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: WEB_RESET_PASSWORD_URL,
+    });
+
+    if (error) {
+      Alert.alert('Reset Failed', error.message || 'We could not send a reset email right now.');
+      return;
+    }
+
+    Alert.alert('Reset Email Sent', 'Check your inbox for the password reset link.');
   };
 
   return (
@@ -66,9 +80,9 @@ export default function LoginScreen() {
           <Zap color={Colors.accent} size={32} style={{ zIndex: 10 }} />
         </View>
         <Text style={styles.title}>
-          Primansh <Text style={styles.italicText}>Admin</Text>
+          Primansh <Text style={styles.italicText}>Portal</Text>
         </Text>
-        <Text style={styles.subtitle}>// SECURE AUTHENTICATION REQUIRED</Text>
+        <Text style={styles.subtitle}>// SECURE ACCOUNT ACCESS</Text>
       </View>
 
       <View style={styles.glassContainer}>
@@ -77,7 +91,7 @@ export default function LoginScreen() {
           <View style={styles.inputWrapper}>
              <Mail size={18} color={Colors.slate500} style={styles.inputIcon} />
              <TextInput 
-               placeholder="admin@primansh.com"
+               placeholder="you@company.com"
                placeholderTextColor={Colors.slate600}
                value={email}
                onChangeText={setEmail}
@@ -90,9 +104,9 @@ export default function LoginScreen() {
 
         <View style={[styles.inputGroup, { marginBottom: 32 }]}>
           <View style={styles.labelRow}>
-            <Text style={styles.label}>ACCESS KEY</Text>
+            <Text style={styles.label}>PASSWORD</Text>
             <TouchableOpacity onPress={handleForgotPassword}>
-              <Text style={styles.forgotText}>FORGOT KEY?</Text>
+              <Text style={styles.forgotText}>RESET PASSWORD</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.inputWrapper}>
@@ -134,15 +148,12 @@ export default function LoginScreen() {
         </View>
         
         <View style={styles.signupRow}>
-          <Text style={styles.signupText}>New Operator?</Text>
-          <TouchableOpacity onPress={() => WebBrowser.openBrowserAsync('https://primansh.com/signup')}>
-             <Text style={styles.signupLink}>Initialize New Access</Text>
-          </TouchableOpacity>
+          <Text style={styles.signupText}>Account access is created by the Primansh team.</Text>
         </View>
       </View>
 
       <Text style={styles.systemVersion}>
-        PRIMANSH AGENCY OS v4.2.0 // NODE: SG-ALPHA-01
+        PRIMANSH AGENCY OS v4.2.0 // MOBILE CLIENT PORTAL
       </Text>
     </KeyboardAvoidingView>
   );

@@ -1300,7 +1300,7 @@ export default function MeetingRoomScreen() {
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: true,
-            },
+            } as any,
             video: isAudioOnly ? false : {
               width: { ideal: 1280 },
               height: { ideal: 720 },
@@ -1499,18 +1499,19 @@ export default function MeetingRoomScreen() {
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnections.current[targetId] = pc;
+    const nativePc = pc as any;
 
     // Add local tracks
     const stream = screenStreamRef.current || localStreamRef.current;
     stream?.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-    pc.onicecandidate = (event: any) => {
+    nativePc.onicecandidate = (event: any) => {
       if (event.candidate) {
         broadcastSignal({ type: 'candidate', to: targetId, data: event.candidate });
       }
     };
 
-    pc.ontrack = (event: any) => {
+    nativePc.ontrack = (event: any) => {
       const remoteStream = event.streams?.[0];
       if (remoteStream) {
         setRemoteStreams((prev) => ({ ...prev, [targetId]: remoteStream }));
@@ -1585,7 +1586,7 @@ export default function MeetingRoomScreen() {
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
         // Android: false = loudspeaker, true = earpiece
-        playsThroughEarpieceAndroid: !next,
+        playThroughEarpieceAndroid: !next,
         staysActiveInBackground: true,
       });
       setIsSpeakerOn(next);
@@ -1653,7 +1654,12 @@ export default function MeetingRoomScreen() {
       broadcastSignal({ type: 'screen_share_state', data: { isSharing: true } });
 
       // Handle system-driven stop (user swipes away the share overlay)
-      screenTrack.addEventListener('ended', stopScreenShare);
+      const nativeScreenTrack = screenTrack as any;
+      if (typeof nativeScreenTrack.addEventListener === 'function') {
+        nativeScreenTrack.addEventListener('ended', stopScreenShare);
+      } else {
+        nativeScreenTrack.onended = stopScreenShare;
+      }
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         Alert.alert('Screen Share Failed', e?.message || 'Could not start screen sharing.');

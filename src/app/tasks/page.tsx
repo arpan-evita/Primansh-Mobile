@@ -200,7 +200,7 @@ export default function TasksPage() {
   const [newTask, setNewTask] = useState({
     title: '',
     client_id: '',
-    assigned_to: '',
+    assigned_to_user_id: '',
     priority: 'medium',
     module: 'seo',
     status: 'todo',
@@ -230,24 +230,36 @@ export default function TasksPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('tasks')
-        .select('*, clients(firm_name)')
-        .order('created_at', { ascending: false });
+        .select('*, clients(firm_name), assigned_profile:profiles!tasks_assigned_to_user_id_fkey(id, full_name)')
+        .order('updated_at', { ascending: false });
       
       if (error) throw error;
       const mapped = (data || []).map(t => ({
           ...t,
           client_name: (t as any).clients?.firm_name || 'Individual Protocol',
-          assigned_name: (t as any).assigned_to || 'Unassigned'
+          assigned_name: (t as any).assigned_profile?.full_name || (t as any).assigned_to || 'Unassigned'
       }));
       return mapped;
     }
   });
 
   useEffect(() => {
-    if (remoteTasks && remoteTasks.length > 0) {
-      setLocalTasks(remoteTasks);
-    }
+    setLocalTasks(remoteTasks || []);
   }, [remoteTasks]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('web-task-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['admin_tasks'] });
+        queryClient.invalidateQueries({ queryKey: ['admin_clients'] });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   const { data: clients = [] } = useQuery({
     queryKey: ['admin_clients_simple'],
@@ -278,7 +290,12 @@ export default function TasksPage() {
   const addTaskMutation = useMutation({
     mutationFn: async (record: any) => {
       if (!record.client_id) throw new Error("Please select a target firm for this mandate.");
-      const submission = { ...record, assigned_to: record.assigned_to || null };
+      const selectedMember = teamMembers.find((member: any) => member.id === record.assigned_to_user_id) || null;
+      const submission = {
+        ...record,
+        assigned_to_user_id: record.assigned_to_user_id || null,
+        assigned_to: selectedMember?.display_name || null,
+      };
       const { error } = await supabase.from('tasks').insert(submission);
       if (error) throw error;
     },
@@ -286,7 +303,7 @@ export default function TasksPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_tasks'] });
       toast.success("Task synchronized for agency operations! 🚀");
       setIsNewTaskOpen(false);
-      setNewTask({ title: '', client_id: '', assigned_to: '', priority: 'medium', module: 'seo', status: 'todo', due_date: '' });
+      setNewTask({ title: '', client_id: '', assigned_to_user_id: '', priority: 'medium', module: 'seo', status: 'todo', due_date: '' });
     },
     onError: (err: any) => toast.error(`Sync failed: ${err.message}`)
   });
@@ -461,13 +478,13 @@ export default function TasksPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Assign Partner</label>
-                    <Select onValueChange={v => setNewTask({...newTask, assigned_to: v})}>
+                    <Select value={newTask.assigned_to_user_id} onValueChange={v => setNewTask({...newTask, assigned_to_user_id: v})}>
                       <SelectTrigger className="bg-white/5 border-white/10">
                         <SelectValue placeholder="Select Partner" />
                       </SelectTrigger>
                       <SelectContent className="bg-[#0f172a] border-white/10 text-white">
                         {teamMembers.map((m: any) => (
-                          <SelectItem key={m.id} value={m.display_name}>{m.display_name}</SelectItem>
+                          <SelectItem key={m.id} value={m.id}>{m.display_name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

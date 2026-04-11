@@ -284,7 +284,13 @@ function AudioBubble({ message, isOwn }: { message: MobileChatMessage; isOwn: bo
     </View>
   );
 }
-function FileBubble({ message }: { message: MobileChatMessage }) {
+function FileBubble({
+  message,
+  onLongPress,
+}: {
+  message: MobileChatMessage;
+  onLongPress?: () => void;
+}) {
   const openFile = async () => {
     if (message.file_url) {
       await Linking.openURL(message.file_url);
@@ -292,7 +298,13 @@ function FileBubble({ message }: { message: MobileChatMessage }) {
   };
 
   return (
-    <TouchableOpacity activeOpacity={0.9} style={styles.fileCard} onPress={openFile}>
+    <TouchableOpacity
+      activeOpacity={0.9}
+      style={styles.fileCard}
+      onPress={openFile}
+      onLongPress={onLongPress}
+      delayLongPress={280}
+    >
       <View style={styles.fileIconWrap}>
         <FileText color="#85adff" size={18} />
       </View>
@@ -308,9 +320,23 @@ function FileBubble({ message }: { message: MobileChatMessage }) {
   );
 }
 
-function MeetingBubble({ message, onJoin }: { message: MobileChatMessage; onJoin: () => void }) {
+function MeetingBubble({
+  message,
+  onJoin,
+  onLongPress,
+}: {
+  message: MobileChatMessage;
+  onJoin: () => void;
+  onLongPress?: () => void;
+}) {
   return (
-    <TouchableOpacity activeOpacity={0.92} style={styles.meetingCard} onPress={onJoin}>
+    <TouchableOpacity
+      activeOpacity={0.92}
+      style={styles.meetingCard}
+      onPress={onJoin}
+      onLongPress={onLongPress}
+      delayLongPress={280}
+    >
       <View style={styles.meetingIconWrap}>
         <Video color="#85adff" size={18} />
       </View>
@@ -345,6 +371,7 @@ function MessageBubble({
   avatar,
   onPreviewImage,
   onJoinMeeting,
+  onLongPress,
 }: {
   message: MobileChatMessage;
   isOwn: boolean;
@@ -352,9 +379,14 @@ function MessageBubble({
   avatar?: string | null;
   onPreviewImage: (uri: string) => void;
   onJoinMeeting: (meetingId: string) => void;
+  onLongPress: (message: MobileChatMessage) => void;
 }) {
   return (
-    <View style={[styles.messageRow, isOwn ? styles.messageRowOwn : styles.messageRowOther]}>
+    <Pressable
+      style={[styles.messageRow, isOwn ? styles.messageRowOwn : styles.messageRowOther]}
+      onLongPress={() => onLongPress(message)}
+      delayLongPress={280}
+    >
       {!isOwn && showAvatar ? (
         avatar ? (
           <Image source={{ uri: avatar }} style={styles.messageAvatar} />
@@ -371,6 +403,8 @@ function MessageBubble({
             activeOpacity={0.94}
             style={styles.imageCard}
             onPress={() => onPreviewImage(message.file_url || message.local_uri || '')}
+            onLongPress={() => onLongPress(message)}
+            delayLongPress={280}
           >
             <Image source={{ uri: message.file_url || message.local_uri || undefined }} style={styles.imageBubble} />
             {message.file_name ? <Text style={styles.imageCaption}>{message.file_name}</Text> : null}
@@ -378,9 +412,15 @@ function MessageBubble({
         ) : null}
 
         {message.message_type === 'audio' ? <AudioBubble message={message} isOwn={isOwn} /> : null}
-        {message.message_type === 'file' ? <FileBubble message={message} /> : null}
+        {message.message_type === 'file' ? (
+          <FileBubble message={message} onLongPress={() => onLongPress(message)} />
+        ) : null}
         {message.message_type === 'meeting' && message.meeting_id ? (
-          <MeetingBubble message={message} onJoin={() => onJoinMeeting(message.meeting_id as string)} />
+          <MeetingBubble
+            message={message}
+            onJoin={() => onJoinMeeting(message.meeting_id as string)}
+            onLongPress={() => onLongPress(message)}
+          />
         ) : null}
 
         {message.message_type === 'text' || (!['image', 'audio', 'file', 'meeting'].includes(message.message_type) && message.content) ? (
@@ -401,7 +441,7 @@ function MessageBubble({
           {isOwn ? <MessageStatus message={message} /> : null}
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -411,12 +451,14 @@ function ConversationRow({
   isActive,
   isOnline,
   onPress,
+  onLongPress,
 }: {
   conversation: any;
   currentProfileId?: string | null;
   isActive: boolean;
   isOnline: boolean;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
   const title = getConversationTitle(conversation.participants, currentProfileId, conversation.title);
   const preview = getConversationPreview(conversation.last_message);
@@ -426,7 +468,13 @@ function ConversationRow({
   const messageType = conversation.last_message?.message_type;
 
   return (
-    <TouchableOpacity activeOpacity={0.9} style={[styles.conversationRow, isActive && styles.conversationRowActive]} onPress={onPress}>
+    <TouchableOpacity
+      activeOpacity={0.9}
+      style={[styles.conversationRow, isActive && styles.conversationRowActive]}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={280}
+    >
       <View style={styles.conversationAvatarWrap}>
         {avatar ? (
           <Image source={{ uri: avatar }} style={styles.conversationAvatar} />
@@ -536,6 +584,8 @@ export default function MessagesScreen() {
     sendTextMessage,
     uploadAndSendAsset,
     broadcastTyping,
+    deleteMessage,
+    deleteConversation,
   } = useMobileMessages();
 
   const [filter, setFilter] = useState<ChatFilter>('all');
@@ -715,8 +765,14 @@ export default function MessagesScreen() {
 
   const showMobileThreadOnly = !showInlineThread && !!activeConversationId;
   const conversationPaneHeight = Math.min(320, height * 0.36);
-  const mobileComposerBottom = isDesktop ? 16 : tabBarHeight + Math.max(insets.bottom, 8) + 18;
-  const threadBottomPadding = isDesktop ? 136 : mobileComposerBottom + 124;
+  const currentTabBarHeight = showMobileThreadOnly ? 0 : tabBarHeight;
+  // When showing the thread on mobile, we want the composer to be flush with the bottom safe area
+  const mobileComposerBottom = isDesktop 
+    ? 16 
+    : showMobileThreadOnly 
+      ? Math.max(insets.bottom, 12) + 8 
+      : currentTabBarHeight + Math.max(insets.bottom, 8) + 18;
+  const threadBottomPadding = isDesktop ? 136 : mobileComposerBottom + 110;
 
   // Handle Android hardware back button & edge swipe gesture
   const showMobileThreadOnlyRef = useRef(false);
@@ -732,15 +788,122 @@ export default function MessagesScreen() {
     return () => subscription.remove();
   }, []); // registered once; ref always has latest value
 
-  // Hide tab bar when chatting on mobile
+  // Hide tab bar when chatting on mobile to provide more space
   useEffect(() => {
-    navigation.getParent()?.setOptions({
-      tabBarStyle: { display: showMobileThreadOnly ? 'none' : 'flex' },
-    });
+    // In expo-router tabs, we target the parent navigator for the tab bar style.
+    // We also set it on the local navigator as a fallback for some configurations.
+    const parent = navigation.getParent();
+    const targets = [navigation, parent].filter(Boolean);
+
+    if (showMobileThreadOnly) {
+      targets.forEach((target) => {
+        target?.setOptions({
+          tabBarStyle: { display: 'none' },
+        });
+      });
+    } else {
+      // Restore standard floating tab bar style
+      targets.forEach((target) => {
+        target?.setOptions({
+          tabBarStyle: {
+            position: 'absolute',
+            left: 16,
+            right: 16,
+            bottom: 16,
+            height: 72,
+            paddingBottom: 10,
+            paddingTop: 8,
+            borderTopWidth: 0,
+            borderTopColor: 'transparent',
+            borderRadius: 24,
+            backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(13, 19, 33, 0.92)',
+            shadowColor: '#000',
+            shadowOpacity: 0.28,
+            shadowRadius: 24,
+            shadowOffset: { width: 0, height: 14 },
+            elevation: 16,
+          },
+        });
+      });
+    }
+
+    // Cleanup: restore tab bar if component unmounts or we navigate away
+    return () => {
+      targets.forEach((target) => {
+        target?.setOptions({
+          tabBarStyle: {
+            position: 'absolute',
+            left: 16,
+            right: 16,
+            bottom: 16,
+            height: 72,
+            paddingBottom: 10,
+            paddingTop: 8,
+            borderTopWidth: 0,
+            borderTopColor: 'transparent',
+            borderRadius: 24,
+            backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(13, 19, 33, 0.92)',
+            shadowColor: '#000',
+            shadowOpacity: 0.28,
+            shadowRadius: 24,
+            shadowOffset: { width: 0, height: 14 },
+            elevation: 16,
+          },
+        });
+      });
+    };
   }, [navigation, showMobileThreadOnly]);
 
   const handleConversationPress = (conversationId: string) => {
     setActiveConversationId(conversationId);
+  };
+
+  const confirmDeleteConversation = async (conversationId: string) => {
+    const success = await deleteConversation(conversationId);
+    if (!success) {
+      Alert.alert('Could not delete chat', 'Please try again.');
+    }
+  };
+
+  const handleConversationLongPress = (conversation: { id: string }) => {
+    Alert.alert(
+      'Delete chat?',
+      'This conversation will be removed from your chat list.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void confirmDeleteConversation(conversation.id);
+          },
+        },
+      ]
+    );
+  };
+
+  const confirmDeleteMessage = async (messageId: string) => {
+    const success = await deleteMessage(messageId);
+    if (!success) {
+      Alert.alert('Could not delete message', 'Please try again.');
+    }
+  };
+
+  const handleMessageLongPress = (message: MobileChatMessage) => {
+    Alert.alert(
+      'Delete message?',
+      'This message will be removed from the conversation.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void confirmDeleteMessage(message.id);
+          },
+        },
+      ]
+    );
   };
 
   const handleDraftChange = (value: string) => {
@@ -1135,6 +1298,7 @@ export default function MessagesScreen() {
                           isActive={conversation.id === activeConversationId}
                           isOnline={isOnline}
                           onPress={() => handleConversationPress(conversation.id)}
+                          onLongPress={() => handleConversationLongPress(conversation)}
                         />
                       );
                     })
@@ -1245,6 +1409,7 @@ export default function MessagesScreen() {
                             avatar={senderAvatar}
                             onPreviewImage={setPreviewImageUri}
                             onJoinMeeting={handleJoinMeeting}
+                            onLongPress={handleMessageLongPress}
                           />
                         );
                       })}

@@ -124,7 +124,7 @@ export function TeamDashboard({ profile, stats }: TeamDashboardProps) {
             <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-widest">
               <Zap size={16} className="text-accent" /> Achievement log
             </h3>
-            <p className="text-[10px] text-slate-600 font-mono tracking-tighter uppercase">// TKN: {Math.random().toString(16).substring(2, 8).toUpperCase()}</p>
+            <p className="text-[10px] text-slate-600 font-mono tracking-tighter uppercase">// ROLE: {(profile?.role || 'team').toUpperCase()}</p>
           </div>
 
           <div className="flex-1 space-y-4">

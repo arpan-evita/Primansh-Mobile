@@ -1,27 +1,51 @@
+import { AppShell } from "@/components/layout/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   FolderPlus, File as FileIcon, Search, Lock, Download, Trash2, 
-  ShieldCheck, Loader2, Plus, X, FileUp
+  ShieldCheck, Loader2, FileUp
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { formatBytes } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
+const DOCUMENT_BUCKET = "client-documents";
+const MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024;
 const DOCUMENT_TYPES = [
   { value: 'asset', label: 'Client Asset' },
   { value: 'credentials', label: 'Secure Credential' },
   { value: 'report', label: 'Report / Invoice' }
 ];
 
+const ALLOWED_DOCUMENT_MIME_TYPES = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip",
+  "application/x-zip-compressed",
+  "text/plain",
+];
+
+function sanitizeFileName(name: string) {
+  return name.replace(/[^\w.\-]+/g, "_");
+}
+
+function isAllowedDocument(file: File) {
+  if (!file.type) return true;
+  if (ALLOWED_DOCUMENT_MIME_TYPES.includes(file.type)) return true;
+  return file.type.startsWith("image/");
+}
+
 export default function DocumentsPage() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
+  const canUpload = !!profile && profile.role !== "client" && profile.role !== "pending";
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -29,39 +53,67 @@ export default function DocumentsPage() {
   const [uploadData, setUploadData] = useState({ client_id: "", type: "asset", secure: false });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabase
+      .channel(`documents-sync:${profile.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "client_documents" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["admin_documents", profile.id] });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id, queryClient]);
+
   // ── DATA FETCHING ──
   const { data: documents = [], isLoading: isDocsLoading } = useQuery({
-    queryKey: ['admin_documents'],
+    queryKey: ['admin_documents', profile?.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('client_documents' as any)
-        .select('*, clients(firm_name)')
+        .select('id, name, type, client_id, file_path, size, secure, created_at, mime_type, uploaded_by, clients(firm_name)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data;
-    }
+    },
+    enabled: !!profile,
   });
 
   const { data: clients = [], isLoading: isClientsLoading } = useQuery({
-    queryKey: ['admin_clients_simple'],
+    queryKey: ['admin_clients_simple', profile?.id],
     queryFn: async () => {
       const { data, error } = await supabase.from('clients').select('id, firm_name');
       if (error) throw error;
       return data;
-    }
+    },
+    enabled: !!profile,
   });
 
   // ── MUTATIONS ──
   const uploadMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFile || !uploadData.client_id) return;
-      
-      const fileExt = selectedFile.name.split('.').pop();
-      const filePath = `${uploadData.client_id}/${Math.random()}.${fileExt}`;
-      
+
+      if (selectedFile.size > MAX_DOCUMENT_SIZE_BYTES) {
+        throw new Error("Files must be 50MB or smaller.");
+      }
+
+      if (!isAllowedDocument(selectedFile)) {
+        throw new Error("Unsupported file type. Upload PDF, Office files, ZIP, text, or images.");
+      }
+
+      const filePath = `${uploadData.client_id}/${Date.now()}_${sanitizeFileName(selectedFile.name)}`;
+
       const { error: uploadError } = await supabase.storage
-        .from('client-documents')
-        .upload(filePath, selectedFile);
+        .from(DOCUMENT_BUCKET)
+        .upload(filePath, selectedFile, {
+          cacheControl: "3600",
+          contentType: selectedFile.type || undefined,
+          upsert: false,
+        });
       if (uploadError) throw uploadError;
 
       const { error: dbError } = await supabase
@@ -72,42 +124,50 @@ export default function DocumentsPage() {
           client_id: uploadData.client_id,
           file_path: filePath,
           size: selectedFile.size,
-          secure: uploadData.secure
+          secure: uploadData.secure,
+          mime_type: selectedFile.type || null,
+          uploaded_by: profile?.id || null,
         });
-      if (dbError) throw dbError;
+      if (dbError) {
+        await supabase.storage.from(DOCUMENT_BUCKET).remove([filePath]).catch(() => undefined);
+        throw dbError;
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_documents'] });
-      toast.success("File uploaded to vault! 🛡️");
+      queryClient.invalidateQueries({ queryKey: ['admin_documents', profile?.id] });
+      toast.success("File uploaded to vault.");
       setIsUploadOpen(false);
       setSelectedFile(null);
+      setUploadData({ client_id: "", type: "asset", secure: false });
     },
     onError: (err: any) => toast.error(`Upload failed: ${err.message}`)
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (doc: any) => {
-      await supabase.storage.from('client-documents').remove([doc.file_path]);
+      await supabase.storage.from(DOCUMENT_BUCKET).remove([doc.file_path]);
       const { error } = await supabase.from('client_documents' as any).delete().eq('id', doc.id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_documents'] });
+      queryClient.invalidateQueries({ queryKey: ['admin_documents', profile?.id] });
       toast.success("Document removed.");
     }
   });
 
   const downloadFile = async (doc: any) => {
     const { data, error } = await supabase.storage
-      .from('client-documents')
-      .createSignedUrl(doc.file_path, 60); // 1 minute link
+      .from(DOCUMENT_BUCKET)
+      .createSignedUrl(doc.file_path, 60 * 5);
     if (error) return toast.error("Download link failed");
     window.open(data.signedUrl, '_blank');
   };
 
   const filteredDocs = documents.filter((doc: any) => {
     const matchesFilter = filter === "all" || doc.client_id === filter;
-    const matchesSearch = doc.name.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch =
+      doc.name.toLowerCase().includes(search.toLowerCase()) ||
+      doc.clients?.firm_name?.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
@@ -154,7 +214,7 @@ export default function DocumentsPage() {
             </select>
           </div>
           
-          {isAdmin && (
+          {canUpload && (
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
               <DialogTrigger asChild>
                 <button className="btn-primary flex items-center justify-center gap-1.5 text-xs w-full sm:w-auto shrink-0 py-2.5 sm:py-2"><FolderPlus size={12} /> Upload File</button>

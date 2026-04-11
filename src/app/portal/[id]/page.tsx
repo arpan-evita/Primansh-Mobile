@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { generateInvoicePDF } from "@/lib/invoice-pdf";
-import { AgencyChatbot } from "@/components/chat/AgencyChatbot";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,

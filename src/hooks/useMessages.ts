@@ -15,6 +15,7 @@ export interface Message {
   file_size: number | null;
   mime_type: string | null;
   meeting_id: string | null;
+  client_message_id?: string | null;
   status: 'sending' | 'sent' | 'delivered' | 'read';
   created_at: string;
   is_read: boolean;
@@ -50,6 +51,18 @@ export interface Conversation {
 }
 
 const CHAT_MEDIA_BUCKET = 'chat-media';
+
+function createClientMessageId(prefix = 'msg') {
+  const maybeCrypto = (globalThis as typeof globalThis & {
+    crypto?: { randomUUID?: () => string };
+  }).crypto;
+  const randomPart =
+    typeof maybeCrypto?.randomUUID === 'function'
+      ? maybeCrypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  return `${prefix}-${randomPart}`;
+}
 
 export function useMessages(conversationId?: string) {
   const { profile } = useAuth();
@@ -192,7 +205,11 @@ export function useMessages(conversationId?: string) {
 
                   const fullMsg = { ...newMsg, sender: senderData, meeting: meetingData } as Message;
                   setMessages(cur => {
-                    const idx = cur.findIndex(m => m.id === fullMsg.id || (m.id.startsWith('temp-') && m.content === fullMsg.content));
+                    const idx = cur.findIndex((m) =>
+                      m.id === fullMsg.id ||
+                      (!!m.client_message_id && !!fullMsg.client_message_id && m.client_message_id === fullMsg.client_message_id) ||
+                      (m.id.startsWith('temp-') && !m.client_message_id && m.content === fullMsg.content)
+                    );
                     if (idx !== -1) {
                       const next = [...cur];
                       next[idx] = fullMsg;
@@ -343,7 +360,8 @@ export function useMessages(conversationId?: string) {
     if (!profile || !conversationId) return;
     
     // Optimistic update
-    const tempId = `temp-${Date.now()}`;
+    const clientMessageId = createClientMessageId('text');
+    const tempId = `temp-${clientMessageId}`;
     const tempMsg: Message = {
       id: tempId,
       conversation_id: conversationId,
@@ -357,6 +375,7 @@ export function useMessages(conversationId?: string) {
       file_size: null,
       mime_type: null,
       meeting_id: null,
+      client_message_id: clientMessageId,
       is_read: false
     };
     setMessages(prev => [...prev, tempMsg]);
@@ -366,8 +385,25 @@ export function useMessages(conversationId?: string) {
         p_conversation_id: conversationId,
         p_content: content,
         p_message_type: 'text',
+        p_client_message_id: clientMessageId,
       });
       if (error) throw error;
+
+      const { data: fullMsg } = await supabase
+        .from('messages')
+        .select('*, sender:profiles(full_name, avatar_url, role), meeting:meetings(*)')
+        .eq('id', msgId)
+        .maybeSingle();
+
+      if (fullMsg) {
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === tempId || message.client_message_id === clientMessageId
+              ? (fullMsg as Message)
+              : message
+          )
+        );
+      }
       
       return true;
     } catch (err: any) {
@@ -383,9 +419,36 @@ export function useMessages(conversationId?: string) {
     if (!profile || !conversationId) return;
     
     setUploadProgress(0);
+    let uploadedFilePath: string | null = null;
+    let persistedMessageId: string | null = null;
+    let tempId: string | null = null;
+    let clientMessageId: string | null = null;
     try {
       const fileName = `${Date.now()}_${file.name}`;
       const filePath = `${conversationId}/${fileName}`;
+      clientMessageId = createClientMessageId('media');
+      uploadedFilePath = filePath;
+
+      tempId = `temp-${clientMessageId}`;
+      const tempMessage: Message = {
+        id: tempId,
+        conversation_id: conversationId,
+        sender_id: profile.id,
+        content: file.type.startsWith('audio/')
+          ? file.name.match(/_(\d+)s_/)?.[1] || null
+          : '',
+        message_type: file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : 'file',
+        status: 'sending',
+        created_at: new Date().toISOString(),
+        file_url: null,
+        file_name: file.name,
+        file_size: file.size,
+        mime_type: file.type || null,
+        meeting_id: null,
+        client_message_id: clientMessageId,
+        is_read: false,
+      };
+      setMessages((prev) => [...prev, tempMessage]);
 
       // 1. Upload file
       const { error: uploadError } = await supabase.storage
@@ -413,15 +476,42 @@ export function useMessages(conversationId?: string) {
         p_message_type: file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : 'file',
         p_file_url: publicUrl,
         p_file_name: file.name,
+        p_file_size: file.size,
+        p_mime_type: file.type || null,
+        p_client_message_id: clientMessageId,
       });
 
       if (sendError) throw sendError;
+      persistedMessageId = msgId as string;
       setUploadProgress(100);
 
-      const { data: fullMsg } = await supabase.from('messages').select('*, sender:profiles(full_name, avatar_url, role)').eq('id', msgId).single();
-      if (fullMsg) setMessages(prev => [...prev, fullMsg as any]);
+      const { data: fullMsg } = await supabase
+        .from('messages')
+        .select('*, sender:profiles(full_name, avatar_url, role), meeting:meetings(*)')
+        .eq('id', msgId)
+        .maybeSingle();
+      if (fullMsg) {
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === tempId || message.client_message_id === clientMessageId
+              ? (fullMsg as Message)
+              : message
+          )
+        );
+      }
     } catch (err: any) {
       console.error('sendMedia failed:', err);
+      if (uploadedFilePath && !persistedMessageId) {
+        await supabase.storage.from(CHAT_MEDIA_BUCKET).remove([uploadedFilePath]).catch(() => undefined);
+      }
+      if (tempId || clientMessageId) {
+        setMessages((prev) =>
+          prev.filter(
+            (message) =>
+              message.id !== tempId && message.client_message_id !== clientMessageId
+          )
+        );
+      }
       toast.error(`Upload failed: ${err.message || 'Unknown error'}`);
     } finally {
       setTimeout(() => setUploadProgress(null), 500);
@@ -608,30 +698,49 @@ export function useMessages(conversationId?: string) {
 
         console.log('[Meeting] Atomic sync successful:', meeting.id);
 
-        // 3. Send meeting invitation message using RPC (Non-blocking)
-        supabase.rpc('send_message_v2', {
-          p_conversation_id: targetConvId,
-          p_content: isAudioOnly ? 'Voice Call Invitation' : 'Meeting Invitation',
-          p_message_type: 'meeting',
-          p_meeting_id: meeting.id
-        }).then(({ error }) => {
-          if (error) {
-            console.warn('Meeting invitation message failed to send, retrying as text:', error);
-            // Fallback to text if meeting type is not supported by DB schema yet
-            supabase.rpc('send_message_v2', {
-              p_conversation_id: targetConvId,
-              p_content: isAudioOnly ? 'Voice Call Invitation' : 'Meeting Invitation',
-              p_message_type: 'text'
+        // 3. Send individual meeting invitations to each participant's 1:1 chat
+        // First, get the participants of the target conversation
+        supabase
+          .from('conversation_participants')
+          .select('profile_id')
+          .eq('conversation_id', targetConvId)
+          .then(async ({ data: participants }) => {
+            if (!participants) return;
+            
+            for (const p of participants) {
+              if (p.profile_id === profile.id) continue;
+              
+              // Get or create 1:1 chat
+              const { data: convId } = await supabase.rpc('upsert_conversation_v1', {
+                p_participant_ids: [profile.id, p.profile_id]
+              });
+              
+              if (convId) {
+                const { error } = await supabase.rpc('send_message_v2', {
+                  p_conversation_id: convId,
+                  p_content: isAudioOnly ? 'Voice Call Invitation' : 'Meeting Invitation',
+                  p_message_type: 'meeting',
+                  p_meeting_id: meeting.id
+                });
+                
+                if (error) {
+                  // Fallback
+                  await supabase.rpc('send_message_v2', {
+                    p_conversation_id: convId,
+                    p_content: isAudioOnly ? 'Voice Call Invitation' : 'Meeting Invitation',
+                    p_message_type: 'text'
+                  });
+                }
+              }
+            }
+            
+            // Broadcast for zero-latency join to the meeting conversation
+            supabase.channel(`chat:${targetConvId}`).send({
+              type: 'broadcast',
+              event: 'new_meeting',
+              payload: { conversation_id: targetConvId, meeting_id: meeting.id }
             });
-          }
-          
-          // Broadcast for zero-latency join regardless of message success
-          supabase.channel(`chat:${targetConvId}`).send({
-            type: 'broadcast',
-            event: 'new_meeting',
-            payload: { conversation_id: targetConvId, meeting_id: meeting.id }
           });
-        });
         
         // 4. Send OS-level push notifications to all participants (fire-and-forget)
         console.log('[Push] Triggering call notification API...', { meeting_id: meeting.id, caller_id: profile.id });

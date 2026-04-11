@@ -2,14 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, Image, TextInput, Platform } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { FileText, Edit2, Globe, Eye, Plus, Search } from 'lucide-react-native';
+import { FileText, Edit2, Globe, Eye, Plus, Search, MoreHorizontal } from 'lucide-react-native';
 import { GlassCard } from '../../components/ui/GlassCard';
+import { ArticleEditorModal, ArticleForm } from '../../components/articles/ArticleEditorModal';
 
 export default function ArticlesScreen() {
   const [articles, setArticles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('');
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState<ArticleForm | null>(null);
 
   async function fetchArticles() {
     const { data, error } = await supabase
@@ -66,7 +69,13 @@ export default function ArticlesScreen() {
                 onChangeText={setFilter}
               />
             </View>
-            <TouchableOpacity style={styles.addButton}>
+            <TouchableOpacity 
+              style={styles.addButton} 
+              onPress={() => {
+                setSelectedArticle(null);
+                setIsEditorOpen(true);
+              }}
+            >
               <Plus size={20} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -91,7 +100,13 @@ export default function ArticlesScreen() {
 
             <View style={styles.cardFooter}>
               <View style={styles.actions}>
-                <TouchableOpacity style={styles.actionButton}>
+                <TouchableOpacity 
+                  style={styles.actionButton}
+                  onPress={() => {
+                    setSelectedArticle(item);
+                    setIsEditorOpen(true);
+                  }}
+                >
                   <Edit2 size={16} color="#3b82f6" />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.actionButton}>
@@ -111,6 +126,15 @@ export default function ArticlesScreen() {
             <Text style={styles.emptyText}>No articles found in index</Text>
           </View>
         }
+      />
+      <ArticleEditorModal 
+        visible={isEditorOpen}
+        article={selectedArticle}
+        onClose={() => setIsEditorOpen(false)}
+        onSave={() => {
+          setRefreshing(true);
+          fetchArticles();
+        }}
       />
     </SafeAreaView>
   );

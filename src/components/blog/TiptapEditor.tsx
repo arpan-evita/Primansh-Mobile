@@ -65,7 +65,7 @@ const TiptapEditor = ({ content, onChange, style }: TiptapEditorProps) => {
   return (
     <div className="relative w-full" style={style}>
       {editor && (
-        <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
+        <BubbleMenu editor={editor} options={{ placement: 'top' }}>
           <div className="flex bg-slate-900 border border-white/10 rounded-xl p-1 shadow-2xl backdrop-blur-xl gap-1">
             <button
               onClick={() => editor.chain().focus().toggleBold().run()}

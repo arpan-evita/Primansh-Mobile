@@ -68,6 +68,28 @@ export default function LeadsPage() {
     },
   });
 
+  const convertMutation = useMutation({
+    mutationFn: async (leadId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Unauthorized");
+
+      const { data, error } = await supabase.rpc("convert_lead_to_client", {
+        lead_id: leadId,
+        admin_id: user.id
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (clientId) => {
+      queryClient.invalidateQueries({ queryKey: ["admin_leads"] });
+      queryClient.invalidateQueries({ queryKey: ["admin_clients"] });
+      toast.success("Lead converted to Client! 🚀");
+    },
+    onError: (err: any) => {
+      toast.error(`Conversion failed: ${err.message}`);
+    }
+  });
+
   const filteredLeads = leads.filter((l: any) => {
     const matchesSearch =
       l.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -227,6 +249,16 @@ export default function LeadsPage() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                        {status === "qualified" && (
+                          <button
+                            onClick={() => convertMutation.mutate(lead.id)}
+                            disabled={convertMutation.isPending}
+                            className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-all shadow-lg shadow-emerald-900/10"
+                            title="Convert to Client"
+                          >
+                            {convertMutation.isPending ? <Loader2 className="animate-spin" size={14} /> : <Users size={14} />}
+                          </button>
+                        )}
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : lead.id)}
                           className="p-2 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-colors"

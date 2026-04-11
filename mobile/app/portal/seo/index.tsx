@@ -5,6 +5,8 @@ import { Search } from 'lucide-react-native';
 import { Colors, Fonts } from '../../../lib/theme';
 import { GlassCard } from '../../../components/ui/GlassCard';
 
+import LiveSEOScreen from '../../../components/seo/LiveSEOScreen';
+
 export default function SEOScreen() {
   return (
     <SafeAreaView style={styles.container}>
@@ -13,18 +15,7 @@ export default function SEOScreen() {
         <Text style={styles.headerSubtitle}>SEARCH PERFORMANCE & ANALYTICS</Text>
       </View>
       
-      <View style={styles.content}>
-        <GlassCard style={styles.card} intensity={20}>
-          <View style={styles.iconContainer}>
-            <Search color="#3b82f6" size={40} />
-          </View>
-          <Text style={styles.title}>Neural SEO Sync</Text>
-          <Text style={styles.description}>
-            The SEO performance engine is currently synchronizing with Google Search Console. 
-            Real-time keyword tracking will be available shortly.
-          </Text>
-        </GlassCard>
-      </View>
+      <LiveSEOScreen />
     </SafeAreaView>
   );
 }

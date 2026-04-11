@@ -139,7 +139,7 @@ export default function MeetingsScreen() {
       const meeting = await startInstantMeeting({
         currentProfile: profile,
         participantIds: selectedParticipantIds,
-        title: meetingTitle.trim() || 'Instant Meeting',
+        title: meetingTitle.trim() || null,
         isAudioOnly: audioOnly,
       });
 

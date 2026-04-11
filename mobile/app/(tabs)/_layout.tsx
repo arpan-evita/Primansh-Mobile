@@ -1,32 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Tabs } from 'expo-router';
 import { 
-  LayoutDashboard, Users, CheckSquare, MessageSquare, Video, FileText, Menu 
+  LayoutDashboard, Users, CheckSquare, MessageSquare, Video, FileText, Settings
 } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
-import { Platform, View, StyleSheet } from 'react-native';
-import { supabase } from '../../lib/supabase';
+import { Platform } from 'react-native';
 import { Colors, Fonts } from '../../lib/theme';
+import { useMobileSession } from '../../context/MobileSessionContext';
 
 export default function TabLayout() {
-  const [role, setRole] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function getRole() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single();
-        setRole(profile?.role || null);
-      }
-    }
-    getRole();
-  }, []);
+  const { profile } = useMobileSession();
+  const isClient = profile?.normalizedRole === 'client';
 
   return (
     <Tabs
@@ -34,11 +18,21 @@ export default function TabLayout() {
         headerShown: false,
         tabBarStyle: {
           position: 'absolute',
-          backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(2, 6, 23, 0.95)',
-          borderTopColor: 'rgba(255, 255, 255, 0.05)',
-          height: 64,
-          paddingBottom: 8,
-          borderTopWidth: 1,
+          left: 16,
+          right: 16,
+          bottom: 16,
+          height: 72,
+          paddingBottom: 10,
+          paddingTop: 8,
+          borderTopWidth: 0,
+          borderTopColor: 'transparent',
+          borderRadius: 24,
+          backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(13, 19, 33, 0.92)',
+          shadowColor: '#000',
+          shadowOpacity: 0.28,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: 14 },
+          elevation: 16,
         },
         tabBarActiveTintColor: Colors.accent,
         tabBarInactiveTintColor: Colors.slate500,
@@ -57,7 +51,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'HOME',
+          title: isClient ? 'HOME' : 'HOME',
           tabBarIcon: ({ color, size }) => (
             <LayoutDashboard color={color} size={20} />
           ),
@@ -66,7 +60,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="clients"
         options={{
-          title: 'CLIENTS',
+          href: isClient ? null : undefined,
+          title: isClient ? 'PROJECT' : 'CLIENTS',
           tabBarIcon: ({ color, size }) => (
              <Users color={color} size={20} />
           ),
@@ -111,16 +106,20 @@ export default function TabLayout() {
       <Tabs.Screen
         name="more"
         options={{
-          title: 'MORE',
-          tabBarIcon: ({ color, size }) => (
-            <Menu color={color} size={20} />
-          ),
+          href: isClient ? null : null,
         }}
       />
 
       {/* Hide deprecated or background tabs automatically from the bottom bar */}
       <Tabs.Screen name="articles" options={{ href: null }} />
-      <Tabs.Screen name="profile" options={{ href: null }} />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          href: isClient ? undefined : null,
+          title: 'SETTINGS',
+          tabBarIcon: ({ color }) => <Settings color={color} size={20} />,
+        }}
+      />
     </Tabs>
   );
 }

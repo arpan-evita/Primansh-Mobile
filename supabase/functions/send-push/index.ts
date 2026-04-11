@@ -1,59 +1,164 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7"
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const MAX_EXPO_BATCH_SIZE = 100;
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
+type PushPayload = {
+  profile_ids?: string[];
+  title?: string;
+  body?: string;
+  data?: Record<string, unknown>;
+  sound?: string | null;
+};
+
+function isExpoPushToken(token: string) {
+  return /^ExponentPushToken\[.+\]$/.test(token) || /^ExpoPushToken\[.+\]$/.test(token);
+}
+
+function chunk<T>(items: T[], size: number) {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    batches.push(items.slice(index, index + size));
+  }
+  return batches;
+}
 
 serve(async (req: Request) => {
-  try {
-    const { profile_ids, title, body, data } = await req.json();
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
 
-    if (!profile_ids || !Array.isArray(profile_ids)) {
-      return new Response(JSON.stringify({ error: "profile_ids array is required" }), { status: 400 });
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    const { profile_ids, title, body, data, sound }: PushPayload = await req.json();
+    const uniqueProfileIds = Array.from(new Set((profile_ids || []).filter(Boolean)));
+
+    if (uniqueProfileIds.length === 0) {
+      return new Response(JSON.stringify({ error: "profile_ids array is required" }), {
+        status: 400,
+        headers: corsHeaders,
+      });
     }
 
-    // Initialize Supabase client
+    if (!title?.trim() || !body?.trim()) {
+      return new Response(JSON.stringify({ error: "title and body are required" }), {
+        status: 400,
+        headers: corsHeaders,
+      });
+    }
+
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // Fetch push tokens for all users in the array
-    const { data: tokens, error: tokenError } = await supabaseClient
+    const { data: tokenRows, error: tokenError } = await supabaseClient
       .from("expo_push_tokens")
-      .select("token, profile_id")
-      .in("profile_id", profile_ids);
+      .select("id, token, profile_id")
+      .in("profile_id", uniqueProfileIds);
 
-    if (tokenError || !tokens || tokens.length === 0) {
-      console.log(`No tokens found for profile_ids: ${profile_ids.join(", ")}`);
-      return new Response(JSON.stringify({ success: true, message: "No tokens found" }), { status: 200 });
+    if (tokenError) throw tokenError;
+
+    const dedupedRows = Array.from(
+      new Map(
+        (tokenRows || [])
+          .filter((row) => row.token && isExpoPushToken(row.token))
+          .map((row) => [row.token, row])
+      ).values()
+    );
+
+    if (dedupedRows.length === 0) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          delivered_batches: 0,
+          delivered_messages: 0,
+          invalid_tokens: 0,
+          message: "No valid Expo push tokens found",
+        }),
+        { status: 200, headers: corsHeaders }
+      );
     }
 
-    const messages = tokens.map((t: { token: string, profile_id: string }) => ({
-      to: t.token,
-      sound: "default",
-      title,
-      body,
-      data: { ...data, target_profile_id: t.profile_id } || {},
-    }));
+    const batches = chunk(
+      dedupedRows.map((row) => ({
+        to: row.token,
+        sound: sound ?? "default",
+        title: title.trim(),
+        body: body.trim(),
+        data: { ...(data || {}), target_profile_id: row.profile_id },
+      })),
+      MAX_EXPO_BATCH_SIZE
+    );
 
-    const response = await fetch(EXPO_PUSH_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-      body: JSON.stringify(messages),
-    });
+    const invalidTokens = new Set<string>();
+    const expoResponses: unknown[] = [];
 
-    const result = await response.json();
-    console.log("Expo response:", result);
+    for (const messageBatch of batches) {
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(messageBatch),
+      });
 
-    return new Response(JSON.stringify(result), {
-      headers: { "Content-Type": "application/json" },
-      status: 200,
-    });
+      const result = await response.json();
+      expoResponses.push(result);
+
+      if (!response.ok) {
+        throw new Error(result?.errors?.[0]?.message || "Expo push dispatch failed");
+      }
+
+      const tickets = Array.isArray(result?.data) ? result.data : [];
+      tickets.forEach((ticket: any, index: number) => {
+        const targetToken = messageBatch[index]?.to;
+        if (
+          ticket?.status === "error" &&
+          ticket?.details?.error === "DeviceNotRegistered" &&
+          targetToken
+        ) {
+          invalidTokens.add(targetToken);
+        }
+      });
+    }
+
+    if (invalidTokens.size > 0) {
+      await supabaseClient.from("expo_push_tokens").delete().in("token", Array.from(invalidTokens));
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        delivered_batches: batches.length,
+        delivered_messages: dedupedRows.length,
+        invalid_tokens: invalidTokens.size,
+        expo: expoResponses,
+      }),
+      {
+        status: 200,
+        headers: corsHeaders,
+      }
+    );
   } catch (error: any) {
-    console.error("Error sending push notification:", error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    console.error("[send-push] Error sending push notification:", error);
+    return new Response(JSON.stringify({ error: error.message || "Push dispatch failed" }), {
+      status: 500,
+      headers: corsHeaders,
+    });
   }
 });

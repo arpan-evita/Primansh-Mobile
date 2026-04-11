@@ -198,10 +198,16 @@ export async function startInstantMeeting(options: {
   title?: string | null;
   isAudioOnly?: boolean;
 }) {
+  const isOneOnOne = options.participantIds.length === 1;
+  const targetId = isOneOnOne ? options.participantIds[0] : null;
+
+  // We host the meeting in the FIRST participant's 1:1 chat to avoid creating "extra" chats in your list.
+  // The new RLS policy allows everyone else to join via their personal invitations.
+  const hostParticipantId = options.participantIds[0] || options.currentProfile.id;
   const conversationId = await createConversationForMeeting(
     options.currentProfile,
-    options.participantIds,
-    options.title || null
+    [hostParticipantId],
+    null
   );
 
   const { data, error } = await supabase.rpc("start_or_get_active_meeting", {
@@ -217,13 +223,30 @@ export async function startInstantMeeting(options: {
 
   try {
     const invContent = options.isAudioOnly ? "Voice Call Invitation" : "Meeting Invitation";
+
+    // Send individual invitations in personal chats for everyone invited.
+    // If it's a 1:1, we only send one message to the conversation itself (which IS the personal chat).
+    // If it's a group, we send a personal message to each person's 1:1 chat with the creator.
     await Promise.all(
-      options.participantIds.map((pid) =>
-        sendIndividualInvitation(options.currentProfile.id, pid, meeting.id, invContent)
-      )
+      options.participantIds.map(async (pid) => {
+        // If it's a group meeting, send a personal invitation to each person.
+        // If it's a 1:1, we only send it if the meeting isn't already hosted in that chat (it usually is).
+        if (!isOneOnOne) {
+          await sendIndividualInvitation(options.currentProfile.id, pid, meeting.id, invContent);
+        } else {
+          // For 1:1, just send the meeting message to the primary conversation
+          await supabase.rpc("send_message_v2", {
+            p_conversation_id: conversationId,
+            p_content: invContent,
+            p_message_type: "meeting",
+            p_meeting_id: meeting.id,
+          });
+        }
+      })
     );
-  } catch {
-    // Invitation message failure should not block room launch.
+  } catch (err) {
+    console.error("[MobileMeetings] Invitation dispatch failed:", err);
+    // Best effort invitation dispatch
   }
 
   return meeting;

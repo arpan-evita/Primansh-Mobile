@@ -26,6 +26,7 @@ export type MobileChatMessage = {
   file_size: number | null;
   mime_type: string | null;
   meeting_id: string | null;
+  client_message_id?: string | null;
   created_at: string;
   is_read: boolean;
   status: MessageStatus;
@@ -63,6 +64,18 @@ type UploadAsset = {
 
 const CHAT_MEDIA_BUCKET = 'chat-media';
 
+function createClientMessageId(prefix = 'msg') {
+  const maybeCrypto = (globalThis as typeof globalThis & {
+    crypto?: { randomUUID?: () => string };
+  }).crypto;
+  const randomPart =
+    typeof maybeCrypto?.randomUUID === 'function'
+      ? maybeCrypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  return `${prefix}-${randomPart}`;
+}
+
 function normalizeMessageStatus(message: Partial<MobileChatMessage>): MessageStatus {
   if (message.status) return message.status;
   if (message.is_read) return 'read';
@@ -96,6 +109,13 @@ function shouldReplaceOptimistic(
   nextMessage: MobileChatMessage
 ) {
   if (!optimistic.id.startsWith('temp-')) return false;
+  if (
+    optimistic.client_message_id &&
+    nextMessage.client_message_id &&
+    optimistic.client_message_id === nextMessage.client_message_id
+  ) {
+    return true;
+  }
   if (optimistic.sender_id !== nextMessage.sender_id) return false;
   if (optimistic.conversation_id !== nextMessage.conversation_id) return false;
   if (optimistic.message_type !== nextMessage.message_type) return false;
@@ -585,15 +605,17 @@ export function useMobileMessages() {
   );
 
   const sendTextMessage = useCallback(
-    async (text: string) => {
-      if (!profile || !activeConversationId) return false;
+    async (text: string, overrideConversationId?: string) => {
+      const targetConversationId = overrideConversationId || activeConversationId;
+      if (!profile || !targetConversationId) return false;
 
       const trimmed = text.trim();
       if (!trimmed) return false;
+      const clientMessageId = createClientMessageId('text');
 
       const tempMessage: MobileChatMessage = {
-        id: `temp-${Date.now()}`,
-        conversation_id: activeConversationId,
+        id: `temp-${clientMessageId}`,
+        conversation_id: targetConversationId,
         sender_id: profile.id,
         content: trimmed,
         message_type: 'text',
@@ -602,6 +624,7 @@ export function useMobileMessages() {
         file_size: null,
         mime_type: null,
         meeting_id: null,
+        client_message_id: clientMessageId,
         created_at: new Date().toISOString(),
         is_read: false,
         status: 'sending',
@@ -617,9 +640,10 @@ export function useMobileMessages() {
 
       try {
         const { data: messageId, error } = await supabase.rpc('send_message_v2', {
-          p_conversation_id: activeConversationId,
+          p_conversation_id: targetConversationId,
           p_content: trimmed,
           p_message_type: 'text',
+          p_client_message_id: clientMessageId,
         });
 
         if (error) throw error;
@@ -628,7 +652,11 @@ export function useMobileMessages() {
         if (fullMessage) {
           setMessages((previous) =>
             sortByCreatedAt(
-              previous.map((item) => (item.id === tempMessage.id ? fullMessage : item))
+              previous.map((item) =>
+                item.id === tempMessage.id || item.client_message_id === clientMessageId
+                  ? fullMessage
+                  : item
+              )
             )
           );
         }
@@ -665,10 +693,17 @@ export function useMobileMessages() {
 
       setUploadingLabel(asset.name);
       setIsSending(true);
+      let uploadedFilePath: string | null = null;
+      let persistedMessageId: string | null = null;
+      let clientMessageId: string | null = null;
+      let optimisticMessageId: string | null = null;
 
       try {
         const safeName = sanitizeFileName(asset.name);
         const filePath = `${activeConversationId}/${Date.now()}_${safeName}`;
+        uploadedFilePath = filePath;
+        clientMessageId = createClientMessageId('media');
+        optimisticMessageId = `temp-${clientMessageId}`;
         const fileBase64 =
           asset.base64Data ||
           (await FileSystem.readAsStringAsync(asset.uri, {
@@ -690,7 +725,7 @@ export function useMobileMessages() {
         } = supabase.storage.from(CHAT_MEDIA_BUCKET).getPublicUrl(filePath);
 
         const optimisticMessage: MobileChatMessage = {
-          id: `temp-${Date.now()}`,
+          id: optimisticMessageId,
           conversation_id: activeConversationId,
           sender_id: profile.id,
           content: normalizedType === 'audio' ? String(asset.durationSeconds || 0) : null,
@@ -700,6 +735,7 @@ export function useMobileMessages() {
           file_size: asset.size || null,
           mime_type: asset.mimeType || null,
           meeting_id: null,
+          client_message_id: clientMessageId,
           created_at: new Date().toISOString(),
           is_read: false,
           status: 'sending',
@@ -721,15 +757,21 @@ export function useMobileMessages() {
           p_file_name: asset.name,
           p_file_size: asset.size || null,
           p_mime_type: asset.mimeType || null,
+          p_client_message_id: clientMessageId,
         });
 
         if (sendError) throw sendError;
+        persistedMessageId = messageId as string;
 
         const fullMessage = await fetchMessageById(messageId as string).catch(() => null);
         if (fullMessage) {
           setMessages((previous) =>
             sortByCreatedAt(
-              previous.map((item) => (item.id === optimisticMessage.id ? fullMessage : item))
+              previous.map((item) =>
+                item.id === optimisticMessage.id || item.client_message_id === clientMessageId
+                  ? fullMessage
+                  : item
+              )
             )
           );
         }
@@ -738,6 +780,17 @@ export function useMobileMessages() {
         return true;
       } catch (error) {
         console.error('[MobileMessages] uploadAndSendAsset failed', error);
+        if (uploadedFilePath && !persistedMessageId) {
+          await supabase.storage.from(CHAT_MEDIA_BUCKET).remove([uploadedFilePath]).catch(() => undefined);
+        }
+        if (optimisticMessageId || clientMessageId) {
+          setMessages((previous) =>
+            previous.filter(
+              (item) =>
+                item.id !== optimisticMessageId && item.client_message_id !== clientMessageId
+            )
+          );
+        }
         return false;
       } finally {
         setUploadingLabel(null);
@@ -745,6 +798,103 @@ export function useMobileMessages() {
       }
     },
     [activeConversationId, profile, refreshConversations]
+  );
+
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      const targetMessage = messages.find((item) => item.id === messageId) || null;
+      if (!targetMessage) return false;
+
+      try {
+        // Optimistic UI update for messages
+        const remainingMessages = messages.filter((item) => item.id !== messageId);
+        setMessages(remainingMessages);
+
+        // Update conversation preview if it was the last message
+        const nextLastMessage =
+          targetMessage.conversation_id === activeConversationId
+            ? remainingMessages[remainingMessages.length - 1] || null
+            : null;
+
+        setConversations((previous) =>
+          previous.map((conversation) => {
+            if (conversation.id !== targetMessage.conversation_id) return conversation;
+            if (conversation.last_message?.id !== messageId) return conversation;
+
+            return {
+              ...conversation,
+              last_message: nextLastMessage,
+              updated_at: nextLastMessage?.created_at || conversation.updated_at,
+            };
+          })
+        );
+
+        // Try RPC first for better permission handling
+        const { error: rpcError } = await supabase.rpc('delete_message_v1', {
+          p_message_id: messageId,
+        });
+
+        if (rpcError) {
+          // Fallback to standard delete if RPC fails (e.g. not defined yet)
+          const { error: deleteError } = await supabase.from('messages').delete().eq('id', messageId);
+          if (deleteError) throw deleteError;
+        }
+
+        await refreshConversations();
+        return true;
+      } catch (error) {
+        console.error('[MobileMessages] deleteMessage failed', error);
+        await refreshConversations(); // Restore state
+        return false;
+      }
+    },
+    [activeConversationId, messages, refreshConversations]
+  );
+
+  const deleteConversation = useCallback(
+    async (conversationId: string) => {
+      console.log('[MobileMessages] Starting deletion for conversation:', conversationId);
+      try {
+        // Optimistically remove from list
+        setConversations((previous) => previous.filter((item) => item.id !== conversationId));
+
+        if (activeConversationIdRef.current === conversationId) {
+          setActiveConversationId(null);
+          setMessages([]);
+        }
+
+        // Prioritize delete_conversation_v1 RPC for definitive hard deletion
+        const { error: rpcError } = await supabase.rpc('delete_conversation_v1', {
+          p_conversation_id: conversationId,
+        });
+
+        if (rpcError) {
+          console.warn('[MobileMessages] delete_conversation_v1 RPC failed, trying fallback update:', rpcError);
+          // Fallback to standard update (archive) if hard delete RPC fails
+          const { error: updateError } = await supabase
+            .from('conversations')
+            .update({ is_archived: true, updated_at: new Date().toISOString() })
+            .eq('id', conversationId);
+
+          if (updateError) {
+            console.error('[MobileMessages] Fallback also failed:', updateError);
+            throw updateError;
+          }
+        } else {
+          console.log('[MobileMessages] delete_conversation_v1 RPC success');
+        }
+
+        // Small delay to ensure DB consistency before refresh
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await refreshConversations();
+        return true;
+      } catch (error) {
+        console.error('[MobileMessages] deleteConversation failed after all attempts:', error);
+        await refreshConversations(); // Sync back if failed
+        return false;
+      }
+    },
+    [refreshConversations]
   );
 
   return {
@@ -768,5 +918,7 @@ export function useMobileMessages() {
     sendTextMessage,
     uploadAndSendAsset,
     broadcastTyping,
+    deleteMessage,
+    deleteConversation,
   };
 }

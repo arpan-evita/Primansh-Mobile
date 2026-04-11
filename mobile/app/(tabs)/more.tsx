@@ -10,6 +10,7 @@ import {
 import { GlassCard } from '../../components/ui/GlassCard';
 import { Colors, Fonts } from '../../lib/theme';
 import { supabase } from '../../lib/supabase';
+import { unregisterMobilePushNotifications } from '../../lib/pushNotifications';
 
 export default function MoreScreen() {
   const router = useRouter();
@@ -38,6 +39,10 @@ export default function MoreScreen() {
       items: [
         { title: 'Security', icon: Shield, color: '#64748b', route: '/portal/security' },
         { title: 'Sign Out', icon: LogOut, color: '#ef4444', action: async () => {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.id) {
+            await unregisterMobilePushNotifications(user.id).catch(() => undefined);
+          }
           await supabase.auth.signOut();
           router.replace('/(auth)/login');
         }},

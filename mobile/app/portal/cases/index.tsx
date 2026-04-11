@@ -5,6 +5,8 @@ import { Database } from 'lucide-react-native';
 import { Colors, Fonts } from '../../../lib/theme';
 import { GlassCard } from '../../../components/ui/GlassCard';
 
+import LiveCasesScreen from '../../../components/cases/LiveCasesScreen';
+
 export default function CasesScreen() {
   return (
     <SafeAreaView style={styles.container}>
@@ -13,18 +15,7 @@ export default function CasesScreen() {
         <Text style={styles.headerSubtitle}>SHOWCASING AGENCY EXCELLENCE</Text>
       </View>
       
-      <View style={styles.content}>
-        <GlassCard style={styles.card} intensity={20}>
-          <View style={styles.iconContainer}>
-            <Database color="#6366f1" size={40} />
-          </View>
-          <Text style={styles.title}>Success Repository</Text>
-          <Text style={styles.description}>
-            The Case Studies repository is currently being indexed for mobile retrieval. 
-            High-conversion success stories will be available here soon.
-          </Text>
-        </GlassCard>
-      </View>
+      <LiveCasesScreen />
     </SafeAreaView>
   );
 }

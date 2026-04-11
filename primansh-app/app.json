@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "Primansh Agency OS",
+    "slug": "primansh-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "primansh-app",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070b14"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.primansh.agencyos.app",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio", "voip"],
+        "NSCameraUsageDescription": "Primansh requires camera access for secure video meetings.",
+        "NSMicrophoneUsageDescription": "Primansh requires microphone access for voice calls and meetings."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#070b14"
+      },
+      "package": "com.primansh.agencyos.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      "expo-web-browser",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": false
+          },
+          "ios": {
+            "newArchEnabled": false,
+            "bitcode": false
+          }
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for video meetings.",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for voice calls."
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f77c4fad-a47a-4e8a-bae5-89629be698d2"
+      }
+    },
+    "owner": "primansh"
+  }
+}

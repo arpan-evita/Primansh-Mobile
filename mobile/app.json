@@ -46,7 +46,11 @@
       [
         "expo-build-properties",
         {
+          "android": {
+            "newArchEnabled": true
+          },
           "ios": {
+            "newArchEnabled": true,
             "bitcode": false
           }
         }
